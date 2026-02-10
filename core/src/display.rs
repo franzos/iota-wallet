@@ -8,15 +8,17 @@ const NANOS_PER_IOTA: u64 = 1_000_000_000;
 /// Convert nanos to a human-readable IOTA string.
 /// Examples: 1_500_000_000 -> "1.500000000", 0 -> "0.000000000"
 #[must_use]
-pub fn nanos_to_iota(nanos: u64) -> String {
-    let whole = nanos / NANOS_PER_IOTA;
-    let frac = nanos % NANOS_PER_IOTA;
+pub fn nanos_to_iota(nanos: impl Into<u128>) -> String {
+    let nanos = nanos.into();
+    let divisor = NANOS_PER_IOTA as u128;
+    let whole = nanos / divisor;
+    let frac = nanos % divisor;
     format!("{whole}.{frac:09}")
 }
 
 /// Format a balance for display.
 #[must_use]
-pub fn format_balance(nanos: u64) -> String {
+pub fn format_balance(nanos: impl Into<u128>) -> String {
     format!("{} IOTA", nanos_to_iota(nanos))
 }
 
@@ -178,7 +180,7 @@ pub fn format_token_balances(balances: &[TokenBalance]) -> String {
     for b in balances {
         // For native IOTA (9 decimals), show in IOTA units; for others show raw amount
         let amount = if b.coin_type == "0x2::iota::IOTA" {
-            format!("{} IOTA", nanos_to_iota(b.total_balance as u64))
+            format!("{} IOTA", nanos_to_iota(b.total_balance))
         } else {
             b.total_balance.to_string()
         };
@@ -229,32 +231,39 @@ mod tests {
 
     #[test]
     fn nanos_to_iota_zero() {
-        assert_eq!(nanos_to_iota(0), "0.000000000");
+        assert_eq!(nanos_to_iota(0_u64), "0.000000000");
     }
 
     #[test]
     fn nanos_to_iota_one() {
-        assert_eq!(nanos_to_iota(1_000_000_000), "1.000000000");
+        assert_eq!(nanos_to_iota(1_000_000_000_u64), "1.000000000");
     }
 
     #[test]
     fn nanos_to_iota_fractional() {
-        assert_eq!(nanos_to_iota(1_500_000_000), "1.500000000");
+        assert_eq!(nanos_to_iota(1_500_000_000_u64), "1.500000000");
     }
 
     #[test]
     fn nanos_to_iota_small() {
-        assert_eq!(nanos_to_iota(1), "0.000000001");
+        assert_eq!(nanos_to_iota(1_u64), "0.000000001");
     }
 
     #[test]
     fn nanos_to_iota_large() {
-        assert_eq!(nanos_to_iota(123_456_789_012), "123.456789012");
+        assert_eq!(nanos_to_iota(123_456_789_012_u64), "123.456789012");
+    }
+
+    #[test]
+    fn nanos_to_iota_u128() {
+        // Value exceeding u64::MAX
+        let big: u128 = u64::MAX as u128 + 1_000_000_000;
+        assert_eq!(nanos_to_iota(big), "18446744074.709551615");
     }
 
     #[test]
     fn format_balance_display() {
-        assert_eq!(format_balance(2_000_000_000), "2.000000000 IOTA");
+        assert_eq!(format_balance(2_000_000_000_u64), "2.000000000 IOTA");
     }
 
     #[test]

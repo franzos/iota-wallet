@@ -359,10 +359,12 @@ impl NetworkClient {
         let tx = builder.finish().await.context("Failed to build sweep transaction")?;
 
         let result = self.sign_and_execute(&tx, private_key).await?;
+        // net_gas_usage is signed: positive = gas consumed, negative = rebate.
+        // Recipient gets balance minus gas consumed (or plus rebate).
         let amount = if result.net_gas_usage > 0 {
-            balance.saturating_sub(result.net_gas_usage as u64)
+            balance.saturating_sub(result.net_gas_usage.unsigned_abs())
         } else {
-            balance
+            balance.saturating_add(result.net_gas_usage.unsigned_abs())
         };
 
         Ok((result, amount))
