@@ -1,5 +1,15 @@
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
+use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, Space};
+use iced::theme::Palette;
 use iced::{Color, Element, Fill, Length, Padding, Task, Theme};
+
+// IOTA brand palette
+const BG:      Color = Color::from_rgb(0.04, 0.055, 0.10);
+const SIDEBAR: Color = Color::from_rgb(0.03, 0.047, 0.094);
+const SURFACE: Color = Color::from_rgb(0.063, 0.094, 0.157);
+const BORDER:  Color = Color::from_rgb(0.102, 0.157, 0.282);
+const ACTIVE:  Color = Color::from_rgb(0.047, 0.125, 0.314);
+const MUTED:   Color = Color::from_rgb(0.314, 0.408, 0.533);
+const PRIMARY: Color = Color::from_rgb(0.0, 0.44, 0.94);
 use std::path::{Path, PathBuf};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -229,7 +239,14 @@ impl App {
     }
 
     fn theme(&self) -> Theme {
-        Theme::Dark
+        Theme::custom("IOTA".to_string(), Palette {
+            background: BG,
+            text: Color::from_rgb(0.82, 0.86, 0.91),
+            primary: PRIMARY,
+            success: Color::from_rgb(0.0, 0.80, 0.53),
+            warning: Color::from_rgb(0.94, 0.63, 0.19),
+            danger: Color::from_rgb(0.88, 0.25, 0.31),
+        })
     }
 
     fn clear_form(&mut self) {
@@ -888,7 +905,7 @@ impl App {
             .width(Fill)
             .style(|_theme| container::Style {
                 border: iced::Border {
-                    color: Color::from_rgb(0.3, 0.3, 0.3),
+                    color: BORDER,
                     width: 1.0,
                     ..Default::default()
                 },
@@ -909,7 +926,7 @@ impl App {
                 btn.style(|theme, status| {
                     let mut style = button::primary(theme, status);
                     style.background =
-                        Some(iced::Background::Color(Color::from_rgb(0.25, 0.25, 0.25)));
+                        Some(iced::Background::Color(ACTIVE));
                     style
                 })
             } else {
@@ -941,7 +958,7 @@ impl App {
         container(col)
             .height(Fill)
             .style(|_theme| container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb(0.15, 0.15, 0.15))),
+                background: Some(iced::Background::Color(SIDEBAR)),
                 ..Default::default()
             })
             .into()
@@ -988,7 +1005,8 @@ impl App {
     }
 
     fn view_wallet_select(&self) -> Element<Message> {
-        let title = text("IOTA Wallet").size(28);
+        let logo = svg(svg::Handle::from_path("gui/assets/iota-logo.svg"))
+            .width(Length::Fixed(200.0));
 
         let net_btn = |label: &'static str, network: Network| -> Element<Message> {
             let active = self.network_config.network == network;
@@ -997,7 +1015,7 @@ impl App {
                 btn.style(|theme, status| {
                     let mut style = button::primary(theme, status);
                     style.background =
-                        Some(iced::Background::Color(Color::from_rgb(0.25, 0.25, 0.25)));
+                        Some(iced::Background::Color(ACTIVE));
                     style
                 })
             } else {
@@ -1015,7 +1033,7 @@ impl App {
         .spacing(6)
         .align_y(iced::Alignment::Center);
 
-        let mut col = column![title, network_row, Space::new().height(20)]
+        let mut col = column![logo, network_row, Space::new().height(20)]
             .spacing(10)
             .max_width(400);
 
@@ -1054,7 +1072,7 @@ impl App {
             .on_submit(Message::UnlockWallet)
             .secure(true);
 
-        let mut unlock = button(text("Unlock").size(14));
+        let mut unlock = button(text("Unlock").size(14)).style(button::primary);
         if !self.loading {
             unlock = unlock.on_press(Message::UnlockWallet);
         }
@@ -1075,7 +1093,7 @@ impl App {
             col = col.push(text("Unlocking...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
 
         col.into()
@@ -1099,7 +1117,7 @@ impl App {
             .on_submit(Message::CreateWallet)
             .secure(true);
 
-        let mut create = button(text("Create").size(14));
+        let mut create = button(text("Create").size(14)).style(button::primary);
         if !self.loading && self.validate_create_form().is_none() {
             create = create.on_press(Message::CreateWallet);
         }
@@ -1121,7 +1139,7 @@ impl App {
             col = col.push(text("Creating wallet...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
 
         col.into()
@@ -1133,7 +1151,7 @@ impl App {
             "Save these 24 words in a safe place. You will need them to recover your wallet.",
         )
         .size(14)
-        .color([1.0, 0.8, 0.2]);
+        .color([0.94, 0.63, 0.19]);
 
         let words: Vec<&str> = mnemonic.split_whitespace().collect();
 
@@ -1186,7 +1204,7 @@ impl App {
         let can_submit = !self.loading
             && self.validate_create_form().is_none()
             && !self.mnemonic_input.trim().is_empty();
-        let mut recover = button(text("Recover").size(14));
+        let mut recover = button(text("Recover").size(14)).style(button::primary);
         if can_submit {
             recover = recover.on_press(Message::RecoverWallet);
         }
@@ -1209,7 +1227,7 @@ impl App {
             col = col.push(text("Recovering wallet...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
 
         col.into()
@@ -1229,7 +1247,7 @@ impl App {
             .width(Fill)
             .style(|_theme| container::Style {
                 border: iced::Border {
-                    color: Color::from_rgb(0.3, 0.3, 0.3),
+                    color: BORDER,
                     width: 1.0,
                     ..Default::default()
                 },
@@ -1245,9 +1263,9 @@ impl App {
                 None => "",
             };
             let dir_color = match tx.direction {
-                Some(TransactionDirection::In) => Color::from_rgb(0.5, 1.0, 0.5),
-                Some(TransactionDirection::Out) => Color::from_rgb(1.0, 0.6, 0.4),
-                None => Color::from_rgb(0.6, 0.6, 0.6),
+                Some(TransactionDirection::In) => Color::from_rgb(0.0, 0.80, 0.53),
+                Some(TransactionDirection::Out) => Color::from_rgb(0.88, 0.25, 0.31),
+                None => MUTED,
             };
 
             let sender_short = tx
@@ -1376,7 +1394,7 @@ impl App {
                             0.12, 0.12, 0.12,
                         ))),
                         border: iced::Border {
-                            color: Color::from_rgb(0.25, 0.25, 0.25),
+                            color: BORDER,
                             width: 1.0,
                             radius: 4.0.into(),
                         },
@@ -1418,13 +1436,13 @@ impl App {
             col = col.push(text("Loading...").size(14));
         }
         if let Some(msg) = &self.status_message {
-            col = col.push(text(msg.as_str()).size(12).color([0.5, 1.0, 0.5]));
+            col = col.push(text(msg.as_str()).size(12).color([0.0, 0.80, 0.53]));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.5, 1.0, 0.5]));
+            col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
 
         // Recent transactions
@@ -1466,7 +1484,7 @@ impl App {
             .on_input(Message::AmountChanged)
             .on_submit(Message::ConfirmSend);
 
-        let mut send = button(text("Send").size(14));
+        let mut send = button(text("Send").size(14)).style(button::primary);
         if !self.loading && !self.recipient.is_empty() && !self.amount.is_empty() {
             send = send.on_press(Message::ConfirmSend);
         }
@@ -1491,10 +1509,10 @@ impl App {
             col = col.push(text("Sending...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.5, 1.0, 0.5]));
+            col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
         }
 
         col.into()
@@ -1513,9 +1531,9 @@ impl App {
         .padding(15)
         .width(Fill)
         .style(|_theme| container::Style {
-            background: Some(iced::Background::Color(Color::from_rgb(0.12, 0.12, 0.12))),
+            background: Some(iced::Background::Color(SURFACE)),
             border: iced::Border {
-                color: Color::from_rgb(0.3, 0.3, 0.3),
+                color: BORDER,
                 width: 1.0,
                 radius: 4.0.into(),
             },
@@ -1536,7 +1554,7 @@ impl App {
         .max_width(600);
 
         if let Some(msg) = &self.status_message {
-            col = col.push(text(msg.as_str()).size(12).color([0.5, 1.0, 0.5]));
+            col = col.push(text(msg.as_str()).size(12).color([0.0, 0.80, 0.53]));
         }
 
         col.into()
@@ -1554,7 +1572,7 @@ impl App {
         }
 
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
 
         scrollable(col).into()
@@ -1594,7 +1612,7 @@ impl App {
                 .width(Fill)
                 .style(|_theme| container::Style {
                     border: iced::Border {
-                        color: Color::from_rgb(0.3, 0.3, 0.3),
+                        color: BORDER,
                         width: 1.0,
                         ..Default::default()
                     },
@@ -1618,9 +1636,9 @@ impl App {
                 };
 
                 let status_color = match stake.status {
-                    StakeStatus::Active => Color::from_rgb(0.5, 1.0, 0.5),
-                    StakeStatus::Pending => Color::from_rgb(1.0, 0.8, 0.2),
-                    StakeStatus::Unstaked => Color::from_rgb(0.6, 0.6, 0.6),
+                    StakeStatus::Active => Color::from_rgb(0.0, 0.80, 0.53),
+                    StakeStatus::Pending => Color::from_rgb(0.94, 0.63, 0.19),
+                    StakeStatus::Unstaked => MUTED,
                 };
 
                 let mut stake_row = row![
@@ -1666,7 +1684,7 @@ impl App {
             .on_input(Message::StakeAmountChanged)
             .on_submit(Message::ConfirmStake);
 
-        let mut stake_btn = button(text("Stake").size(14));
+        let mut stake_btn = button(text("Stake").size(14)).style(button::primary);
         if !self.loading && !self.validator_address.is_empty() && !self.stake_amount.is_empty()
         {
             stake_btn = stake_btn.on_press(Message::ConfirmStake);
@@ -1685,10 +1703,10 @@ impl App {
             col = col.push(text("Processing...").size(14));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.5, 1.0, 0.5]));
+            col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
         }
 
         scrollable(col).into()
@@ -1710,7 +1728,7 @@ impl App {
                 btn.style(|theme, status| {
                     let mut style = button::primary(theme, status);
                     style.background =
-                        Some(iced::Background::Color(Color::from_rgb(0.25, 0.25, 0.25)));
+                        Some(iced::Background::Color(ACTIVE));
                     style
                 })
             } else {
@@ -1740,7 +1758,7 @@ impl App {
             col = col.push(
                 text("Changing network applies to the current session only.")
                     .size(12)
-                    .color([0.5, 0.5, 0.5]),
+                    .color([0.314, 0.408, 0.533]),
             );
 
             // -- Change password --
@@ -1778,10 +1796,10 @@ impl App {
                 col = col.push(text("Changing password...").size(14));
             }
             if let Some(msg) = &self.success_message {
-                col = col.push(text(msg.as_str()).size(14).color([0.5, 1.0, 0.5]));
+                col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
             }
             if let Some(err) = &self.error_message {
-                col = col.push(text(err.as_str()).size(14).color([1.0, 0.3, 0.3]));
+                col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
             }
         }
 

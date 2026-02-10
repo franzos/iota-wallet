@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 iota-wallet-core = { path = "../core" }
 iota-sdk = { git = "https://github.com/iotaledger/iota-rust-sdk", tag = "iota-sdk-v3.0.0-alpha.1", package = "iota-sdk" }
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "svg"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 zeroize = { version = "1", features = ["derive"] }
