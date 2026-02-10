@@ -227,6 +227,37 @@ impl TransactionCache {
         })
     }
 
+    /// Get per-epoch balance deltas for charting.
+    /// Returns `(epoch, net_change_in_nanos)` sorted by epoch ASC.
+    ///
+    /// Assumes all balance-affecting transactions have a direction set and
+    /// the cache contains a complete sync — partial history will skew the
+    /// backward-walk reconstruction in the GUI chart.
+    pub fn query_epoch_deltas(
+        &self,
+        network: &str,
+        address: &str,
+    ) -> Result<Vec<(u64, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT epoch,
+                    SUM(CASE WHEN direction = 'in' THEN amount ELSE 0 END)
+                  - SUM(CASE WHEN direction = 'out' THEN amount + COALESCE(fee, 0) ELSE 0 END)
+             FROM transactions
+             WHERE network = ?1 AND address = ?2
+             GROUP BY epoch
+             ORDER BY epoch ASC"
+        ).context("Failed to prepare epoch deltas query")?;
+
+        let rows = stmt.query_map(params![network, address], |row| {
+            let epoch: i64 = row.get(0)?;
+            let delta: i64 = row.get(1)?;
+            Ok((epoch as u64, delta))
+        }).context("Failed to query epoch deltas")?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("Failed to read epoch delta rows")
+    }
+
     /// Get the set of known transaction digests for an (network, address) pair.
     pub fn known_digests(&self, network: &str, address: &str) -> Result<HashSet<String>> {
         let mut stmt = self.conn.prepare(
@@ -402,6 +433,22 @@ mod tests {
         assert_eq!(cache.get_sync_epoch("testnet", "0xme").unwrap(), 0);
         cache.set_sync_epoch("testnet", "0xme", 42).unwrap();
         assert_eq!(cache.get_sync_epoch("testnet", "0xme").unwrap(), 42);
+    }
+
+    #[test]
+    fn epoch_deltas() {
+        let cache = TransactionCache::open_in_memory().unwrap();
+        cache.insert("testnet", "0xme", &sample_txs()).unwrap();
+
+        let deltas = cache.query_epoch_deltas("testnet", "0xme").unwrap();
+        // sample_txs: epoch 10 has out(1_000_000_000, fee 500_000) + in(2_000_000_000)
+        // net = 2_000_000_000 - (1_000_000_000 + 500_000) = 999_500_000
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(deltas[0], (10, 999_500_000));
+
+        // Empty for unknown address
+        let empty = cache.query_epoch_deltas("testnet", "0xother").unwrap();
+        assert!(empty.is_empty());
     }
 
     #[test]

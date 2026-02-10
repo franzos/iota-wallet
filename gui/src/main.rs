@@ -1,6 +1,6 @@
-use iced::widget::{button, column, container, row, scrollable, svg, text, text_input, Space};
+use iced::widget::{button, canvas, column, container, row, scrollable, svg, text, text_input, Space};
 use iced::theme::Palette;
-use iced::{Color, Element, Fill, Length, Padding, Task, Theme};
+use iced::{Color, Element, Fill, Length, Padding, Pixels, Point, Task, Theme, mouse};
 
 // IOTA Explorer dark-mode palette (iota2.darkmode)
 const BG:      Color = Color::from_rgb(0.051, 0.067, 0.090); // #0d1117
@@ -19,7 +19,7 @@ use iota_sdk::crypto::FromMnemonic;
 use iota_sdk::types::{Address, ObjectId};
 use std::fmt;
 
-use iota_wallet_core::cache::{TransactionCache, TransactionPage};
+use iota_wallet_core::cache::TransactionCache;
 use iota_wallet_core::display::{format_balance, nanos_to_iota, parse_iota_amount};
 use iota_wallet_core::{list_wallets, validate_wallet_name};
 use iota_wallet_core::network::{
@@ -66,6 +66,142 @@ impl WalletInfo {
             private_key: Arc::new(private_key),
             is_mainnet: wallet.is_mainnet(),
         }
+    }
+}
+
+// -- Balance chart (canvas) --
+
+struct BalanceChart {
+    data: Vec<(u64, f64)>,
+    cache: canvas::Cache,
+}
+
+impl BalanceChart {
+    fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            cache: canvas::Cache::default(),
+        }
+    }
+
+    fn update(&mut self, data: Vec<(u64, f64)>) {
+        self.data = data;
+        self.cache.clear();
+    }
+
+    fn clear(&mut self) {
+        self.data.clear();
+        self.cache.clear();
+    }
+}
+
+impl<Message> canvas::Program<Message> for BalanceChart {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &iced::Renderer,
+        _theme: &Theme,
+        bounds: iced::Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
+            let size = frame.size();
+            frame.fill_rectangle(Point::ORIGIN, size, SURFACE);
+
+            if self.data.is_empty() {
+                return;
+            }
+
+            let pad_left = 50.0_f32;
+            let pad_right = 10.0_f32;
+            let pad_top = 10.0_f32;
+            let pad_bottom = 20.0_f32;
+            let w = size.width - pad_left - pad_right;
+            let h = size.height - pad_top - pad_bottom;
+
+            let min_bal = self.data.iter().map(|(_, b)| *b).fold(f64::INFINITY, f64::min);
+            let max_bal = self.data.iter().map(|(_, b)| *b).fold(f64::NEG_INFINITY, f64::max);
+            let range = (max_bal - min_bal).max(0.001);
+
+            let n = self.data.len();
+
+            // Grid lines + Y labels
+            for i in 0..=4 {
+                let frac = i as f64 / 4.0;
+                let val = min_bal + frac * range;
+                let y = pad_top + h - (frac as f32 * h);
+
+                let grid = canvas::Path::line(
+                    Point::new(pad_left, y),
+                    Point::new(pad_left + w, y),
+                );
+                frame.stroke(
+                    &grid,
+                    canvas::Stroke::default().with_color(BORDER).with_width(0.5),
+                );
+
+                let label = if val >= 1000.0 {
+                    format!("{:.0}", val)
+                } else {
+                    format!("{:.2}", val)
+                };
+                frame.fill_text(canvas::Text {
+                    content: label,
+                    position: Point::new(2.0, y - 6.0),
+                    color: MUTED,
+                    size: Pixels(10.0),
+                    ..canvas::Text::default()
+                });
+            }
+
+            // Balance line + dots
+            let divisor = if n > 1 { (n - 1) as f32 } else { 1.0 };
+            if n > 1 {
+                let line = canvas::Path::new(|b| {
+                    for (i, (_, bal)) in self.data.iter().enumerate() {
+                        let x = pad_left + (i as f32 / divisor) * w;
+                        let y = pad_top + h - (((bal - min_bal) / range) as f32 * h);
+                        if i == 0 {
+                            b.move_to(Point::new(x, y));
+                        } else {
+                            b.line_to(Point::new(x, y));
+                        }
+                    }
+                });
+                frame.stroke(
+                    &line,
+                    canvas::Stroke::default().with_color(PRIMARY).with_width(2.0),
+                );
+            }
+            for (i, (_, bal)) in self.data.iter().enumerate() {
+                let x = pad_left + (i as f32 / divisor) * w;
+                let y = pad_top + h - (((bal - min_bal) / range) as f32 * h);
+                let dot = canvas::Path::circle(Point::new(x, y), 3.0);
+                frame.fill(&dot, PRIMARY);
+            }
+
+            // X-axis epoch labels
+            if let (Some(first), Some(last)) = (self.data.first(), self.data.last()) {
+                frame.fill_text(canvas::Text {
+                    content: format!("E{}", first.0),
+                    position: Point::new(pad_left, pad_top + h + 4.0),
+                    color: MUTED,
+                    size: Pixels(10.0),
+                    ..canvas::Text::default()
+                });
+                frame.fill_text(canvas::Text {
+                    content: format!("E{}", last.0),
+                    position: Point::new(pad_left + w - 20.0, pad_top + h + 4.0),
+                    color: MUTED,
+                    size: Pixels(10.0),
+                    ..canvas::Text::default()
+                });
+            }
+        });
+
+        vec![geometry]
     }
 }
 
@@ -124,7 +260,7 @@ enum Message {
     RequestFaucet,
     FaucetCompleted(Result<(), String>),
     CopyAddress,
-    TransactionsLoaded(Result<(Vec<TransactionSummary>, u32), String>),
+    TransactionsLoaded(Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), String>),
 
     // Send
     ConfirmSend,
@@ -180,6 +316,8 @@ struct App {
     // Dashboard
     balance: Option<u64>,
     transactions: Vec<TransactionSummary>,
+    epoch_deltas: Vec<(u64, i64)>,
+    balance_chart: BalanceChart,
 
     // History
     expanded_tx: Option<usize>,
@@ -227,6 +365,8 @@ impl App {
             created_mnemonic: None,
             balance: None,
             transactions: Vec::new(),
+            epoch_deltas: Vec::new(),
+            balance_chart: BalanceChart::new(),
             expanded_tx: None,
             history_page: 0,
             history_total: 0,
@@ -299,6 +439,8 @@ impl App {
                     self.wallet_info = None;
                     self.balance = None;
                     self.transactions.clear();
+                    self.epoch_deltas.clear();
+                    self.balance_chart.clear();
                     self.stakes.clear();
                 }
                 let load_stakes = screen == Screen::Staking;
@@ -488,7 +630,10 @@ impl App {
             Message::BalanceUpdated(result) => {
                 self.loading = false;
                 match result {
-                    Ok(b) => self.balance = Some(b),
+                    Ok(b) => {
+                        self.balance = Some(b);
+                        self.compute_balance_history();
+                    }
                     Err(e) => self.error_message = Some(e),
                 }
                 Task::none()
@@ -540,9 +685,13 @@ impl App {
 
             Message::TransactionsLoaded(result) => {
                 match result {
-                    Ok((txs, total)) => {
+                    Ok((txs, total, deltas)) => {
                         self.transactions = txs;
                         self.history_total = total;
+                        if !deltas.is_empty() {
+                            self.epoch_deltas = deltas;
+                            self.compute_balance_history();
+                        }
                     }
                     Err(e) => self.error_message = Some(e),
                 }
@@ -843,6 +992,27 @@ impl App {
         None
     }
 
+    fn compute_balance_history(&mut self) {
+        let Some(current_balance) = self.balance else { return };
+        if self.epoch_deltas.is_empty() { return; }
+
+        let start = self.epoch_deltas.len().saturating_sub(30);
+        let recent = &self.epoch_deltas[start..];
+
+        let mut bal = current_balance as f64 / 1_000_000_000.0;
+        let mut history: Vec<(u64, f64)> = Vec::with_capacity(recent.len() + 1);
+        for &(epoch, delta) in recent.iter().rev() {
+            history.push((epoch, bal));
+            bal -= delta as f64 / 1_000_000_000.0;
+        }
+        // Add starting point (balance before first displayed epoch)
+        if let Some(&(first_epoch, _)) = recent.first() {
+            history.push((first_epoch.saturating_sub(1), bal));
+        }
+        history.reverse();
+        self.balance_chart.update(history);
+    }
+
     fn refresh_dashboard(&mut self) -> Task<Message> {
         let Some(info) = &self.wallet_info else {
             return Task::none();
@@ -874,9 +1044,10 @@ impl App {
                     let network_str = cfg2.network.to_string();
                     let address_str = addr2.to_string();
                     let page = cache.query(&network_str, &address_str, &TransactionFilter::All, 25, 0)?;
-                    Ok((page.transactions, page.total))
+                    let deltas = cache.query_epoch_deltas(&network_str, &address_str)?;
+                    Ok((page.transactions, page.total, deltas))
                 },
-                |r: Result<(Vec<TransactionSummary>, u32), anyhow::Error>| {
+                |r: Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), anyhow::Error>| {
                     Message::TransactionsLoaded(r.map_err(|e| e.to_string()))
                 },
             ),
@@ -895,9 +1066,9 @@ impl App {
             async move {
                 let cache = TransactionCache::open()?;
                 let page = cache.query(&network_str, &address_str, &TransactionFilter::All, 25, offset)?;
-                Ok((page.transactions, page.total))
+                Ok((page.transactions, page.total, Vec::new()))
             },
-            |r: Result<(Vec<TransactionSummary>, u32), anyhow::Error>| {
+            |r: Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), anyhow::Error>| {
                 Message::TransactionsLoaded(r.map_err(|e| e.to_string()))
             },
         )
@@ -1502,6 +1673,17 @@ impl App {
             col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
+        // Balance chart
+        if !self.balance_chart.data.is_empty() {
+            col = col.push(Space::new().height(10));
+            col = col.push(text("Balance History").size(18));
+            col = col.push(
+                canvas::Canvas::new(&self.balance_chart)
+                    .width(Fill)
+                    .height(Length::Fixed(200.0))
+            );
+        }
+
         // Recent transactions
         col = col.push(Space::new().height(10));
         col = col.push(text("Recent Transactions").size(18));
@@ -1890,4 +2072,3 @@ impl App {
         col.into()
     }
 }
-
