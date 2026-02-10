@@ -1,6 +1,6 @@
 /// Command definitions and parsing for the wallet REPL and one-shot mode.
 use anyhow::{Result, bail};
-use iota_sdk::types::Address;
+use iota_sdk::types::{Address, ObjectId};
 
 use crate::display;
 use crate::network::{NetworkClient, TransactionFilter};
@@ -18,6 +18,12 @@ pub enum Command {
     ShowTransfers { filter: TransactionFilter },
     /// Request faucet tokens (testnet/devnet only)
     Faucet,
+    /// Stake IOTA to a validator: stake <validator_address> <amount>
+    Stake { validator: Address, amount: u64 },
+    /// Unstake a staked IOTA object: unstake <staked_object_id>
+    Unstake { staked_object_id: ObjectId },
+    /// Show all active stakes
+    Stakes,
     /// Show seed phrase (mnemonic)
     Seed,
     /// Print help
@@ -76,6 +82,49 @@ impl Command {
                 Ok(Command::ShowTransfers { filter })
             }
 
+            "stake" => {
+                let addr_str = arg1.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing validator address. Usage: stake <validator_address> <amount>\n  Find validators at https://explorer.iota.org/validators"
+                    )
+                })?;
+                let amount_str = arg2.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing amount. Usage: stake <validator_address> <amount>"
+                    )
+                })?;
+
+                let validator = Address::from_hex(addr_str).map_err(|e| {
+                    anyhow::anyhow!("Invalid validator address '{addr_str}': {e}")
+                })?;
+
+                let amount = display::parse_iota_amount(amount_str).map_err(|e| {
+                    anyhow::anyhow!("Invalid amount '{amount_str}': {e}")
+                })?;
+
+                if amount == 0 {
+                    bail!("Cannot stake 0 IOTA.");
+                }
+
+                Ok(Command::Stake { validator, amount })
+            }
+
+            "unstake" => {
+                let id_str = arg1.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing staked object ID. Usage: unstake <staked_object_id>"
+                    )
+                })?;
+
+                let staked_object_id = ObjectId::from_hex(id_str).map_err(|e| {
+                    anyhow::anyhow!("Invalid object ID '{id_str}': {e}")
+                })?;
+
+                Ok(Command::Unstake { staked_object_id })
+            }
+
+            "stakes" => Ok(Command::Stakes),
+
             "faucet" => Ok(Command::Faucet),
 
             "seed" => Ok(Command::Seed),
@@ -92,9 +141,13 @@ impl Command {
         }
     }
 
-    /// Whether this command should prompt for confirmation before executing.
-    pub fn requires_confirmation(&self) -> bool {
-        matches!(self, Command::Seed)
+    /// Returns a confirmation prompt if this command should ask before executing.
+    pub fn confirmation_prompt(&self) -> Option<&'static str> {
+        match self {
+            Command::Seed => Some("This will display sensitive data. Continue?"),
+            Command::Stake { .. } => Some("This will stake IOTA to a validator. Continue?"),
+            _ => None,
+        }
     }
 
     /// Execute a command and return the output string.
@@ -175,6 +228,82 @@ impl Command {
                 }
             }
 
+            Command::Stake { validator, amount } => {
+                let result = network
+                    .stake_iota(
+                        wallet.private_key(),
+                        wallet.address(),
+                        *validator,
+                        *amount,
+                    )
+                    .await?;
+
+                if json_output {
+                    Ok(serde_json::json!({
+                        "digest": result.digest,
+                        "status": result.status,
+                        "amount_nanos": amount,
+                        "amount_iota": display::nanos_to_iota(*amount),
+                        "validator": validator.to_string(),
+                    })
+                    .to_string())
+                } else {
+                    Ok(format!(
+                        "Stake sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
+                        result.digest,
+                        result.status,
+                        display::format_balance(*amount),
+                        validator,
+                    ))
+                }
+            }
+
+            Command::Unstake { staked_object_id } => {
+                let result = network
+                    .unstake_iota(
+                        wallet.private_key(),
+                        wallet.address(),
+                        *staked_object_id,
+                    )
+                    .await?;
+
+                if json_output {
+                    Ok(serde_json::json!({
+                        "digest": result.digest,
+                        "status": result.status,
+                        "staked_object_id": staked_object_id.to_string(),
+                    })
+                    .to_string())
+                } else {
+                    Ok(format!(
+                        "Unstake sent!\n  Digest: {}\n  Status: {}",
+                        result.digest,
+                        result.status,
+                    ))
+                }
+            }
+
+            Command::Stakes => {
+                let stakes = network.get_stakes(wallet.address()).await?;
+                if json_output {
+                    let json_stakes: Vec<serde_json::Value> = stakes
+                        .iter()
+                        .map(|s| {
+                            serde_json::json!({
+                                "object_id": s.object_id.to_string(),
+                                "pool_id": s.pool_id.to_string(),
+                                "principal_nanos": s.principal,
+                                "principal_iota": display::nanos_to_iota(s.principal),
+                                "stake_activation_epoch": s.stake_activation_epoch,
+                            })
+                        })
+                        .collect();
+                    Ok(serde_json::to_string_pretty(&json_stakes)?)
+                } else {
+                    Ok(display::format_stakes(&stakes))
+                }
+            }
+
             Command::Faucet => {
                 if wallet.is_mainnet() {
                     bail!("Faucet is not available on mainnet.");
@@ -228,6 +357,15 @@ pub fn help_text(command: Option<&str>) -> String {
         Some("show_transfers") | Some("transfers") | Some("txs") => {
             "show_transfers [in|out|all]\n  Show transaction history.\n  Filter: 'in' (received), 'out' (sent), 'all' (default).\n  Aliases: transfers, txs".to_string()
         }
+        Some("stake") => {
+            "stake <validator_address> <amount>\n  Stake IOTA to a validator.\n  Amount is in IOTA (e.g. '1.5' for 1.5 IOTA).\n  Find validators at https://explorer.iota.org/validators".to_string()
+        }
+        Some("unstake") => {
+            "unstake <staked_object_id>\n  Unstake a previously staked IOTA object.\n  Use 'stakes' to find object IDs.".to_string()
+        }
+        Some("stakes") => {
+            "stakes\n  Show all active stakes for this wallet.".to_string()
+        }
         Some("faucet") => {
             "faucet\n  Request test tokens from the faucet.\n  Only available on testnet and devnet.".to_string()
         }
@@ -245,6 +383,9 @@ pub fn help_text(command: Option<&str>) -> String {
              \x20 address          Show wallet address\n\
              \x20 transfer         Send IOTA to an address\n\
              \x20 show_transfers   Show transaction history\n\
+             \x20 stake            Stake IOTA to a validator\n\
+             \x20 unstake          Unstake a staked IOTA object\n\
+             \x20 stakes           Show active stakes\n\
              \x20 faucet           Request testnet/devnet tokens\n\
              \x20 seed             Show seed phrase\n\
              \x20 help [cmd]       Show help for a command\n\
@@ -405,6 +546,69 @@ mod tests {
     }
 
     #[test]
+    fn parse_stake() {
+        let cmd = Command::parse(
+            "stake 0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900 1.5",
+        )
+        .unwrap();
+        match cmd {
+            Command::Stake { validator, amount } => {
+                assert_eq!(
+                    format!("{validator}"),
+                    "0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900"
+                );
+                assert_eq!(amount, 1_500_000_000);
+            }
+            other => panic!("expected Stake, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_stake_missing_amount() {
+        let result = Command::parse(
+            "stake 0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_stake_zero_amount() {
+        let result = Command::parse(
+            "stake 0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900 0",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_unstake() {
+        let cmd = Command::parse(
+            "unstake 0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900",
+        )
+        .unwrap();
+        assert!(matches!(cmd, Command::Unstake { .. }));
+    }
+
+    #[test]
+    fn parse_unstake_missing_id() {
+        let result = Command::parse("unstake");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_stakes() {
+        assert_eq!(Command::parse("stakes").unwrap(), Command::Stakes);
+    }
+
+    #[test]
+    fn stake_requires_confirmation() {
+        let cmd = Command::Stake {
+            validator: Address::ZERO,
+            amount: 1_000_000_000,
+        };
+        assert!(cmd.confirmation_prompt().is_some());
+    }
+
+    #[test]
     fn parse_case_insensitive() {
         assert_eq!(Command::parse("BALANCE").unwrap(), Command::Balance);
         assert_eq!(Command::parse("Balance").unwrap(), Command::Balance);
@@ -413,8 +617,8 @@ mod tests {
 
     #[test]
     fn seed_requires_confirmation() {
-        assert!(Command::Seed.requires_confirmation());
-        assert!(!Command::Balance.requires_confirmation());
-        assert!(!Command::Address.requires_confirmation());
+        assert!(Command::Seed.confirmation_prompt().is_some());
+        assert!(Command::Balance.confirmation_prompt().is_none());
+        assert!(Command::Address.confirmation_prompt().is_none());
     }
 }

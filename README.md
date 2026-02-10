@@ -53,6 +53,9 @@ On first launch you'll be prompted to create a new wallet or recover from a seed
 | `address` | Show wallet address |
 | `transfer <addr> <amount>` | Send IOTA to an address |
 | `show_transfers [in\|out\|all]` | Show transaction history |
+| `stake <validator> <amount>` | Stake IOTA to a [validator](https://explorer.iota.org/validators) |
+| `unstake <object_id>` | Unstake a staked IOTA object |
+| `stakes` | Show active stakes |
 | `faucet` | Request testnet/devnet tokens |
 | `seed` | Display seed phrase (requires confirmation) |
 | `help [cmd]` | Show help |

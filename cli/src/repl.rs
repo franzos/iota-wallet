@@ -101,6 +101,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
         "address".into(), "addr".into(),
         "transfer".into(), "send".into(),
         "show_transfers".into(), "transfers".into(), "txs".into(),
+        "stake".into(), "unstake".into(), "stakes".into(),
         "faucet".into(),
         "seed".into(),
         "help".into(),
@@ -123,8 +124,8 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                         break;
                     }
                     Ok(cmd) => {
-                        if cmd.requires_confirmation() {
-                            print!("This will display sensitive data. Continue? [y/N]: ");
+                        if let Some(prompt_msg) = cmd.confirmation_prompt() {
+                            print!("{prompt_msg} [y/N]: ");
                             use std::io::Write;
                             std::io::stdout().flush().ok();
                             let mut confirm = String::new();

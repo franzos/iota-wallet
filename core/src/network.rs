@@ -4,11 +4,12 @@ use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
 use iota_sdk::crypto::IotaSigner;
 use iota_sdk::graphql_client::faucet::FaucetClient;
 use iota_sdk::graphql_client::pagination::PaginationFilter;
-use iota_sdk::graphql_client::query_types::TransactionsFilter;
+use iota_sdk::graphql_client::query_types::{ObjectFilter, TransactionsFilter};
 use iota_sdk::graphql_client::Client;
 use iota_sdk::transaction_builder::TransactionBuilder;
 use iota_sdk::types::{
-    Address, Argument, Command as TxCommand, Input, Transaction, TransactionKind,
+    Address, Argument, Command as TxCommand, Input, ObjectId, StructTag, Transaction,
+    TransactionKind,
 };
 
 use crate::wallet::{Network, NetworkConfig};
@@ -91,6 +92,134 @@ impl NetworkClient {
         let status = format!("{:?}", effects.status());
 
         Ok(TransferResult { digest, status })
+    }
+
+    /// Stake IOTA to a validator.
+    /// Amount is in nanos (1 IOTA = 1_000_000_000 nanos).
+    pub async fn stake_iota(
+        &self,
+        private_key: &Ed25519PrivateKey,
+        sender: &Address,
+        validator: Address,
+        amount: u64,
+    ) -> Result<TransferResult> {
+        let mut builder = TransactionBuilder::new(*sender).with_client(&self.client);
+        builder.stake(amount, validator);
+
+        let tx = builder
+            .finish()
+            .await
+            .context("Failed to build stake transaction")?;
+
+        let dry_run = self
+            .client
+            .dry_run_tx(&tx, false)
+            .await
+            .context("Dry run failed")?;
+        if let Some(err) = dry_run.error {
+            bail!("Stake transaction would fail: {err}");
+        }
+
+        let signature = private_key
+            .sign_transaction(&tx)
+            .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {e}"))?;
+
+        let effects = self
+            .client
+            .execute_tx(&[signature], &tx, None)
+            .await
+            .context("Failed to execute stake transaction")?;
+
+        let digest = effects.digest().to_string();
+        let status = format!("{:?}", effects.status());
+
+        Ok(TransferResult { digest, status })
+    }
+
+    /// Unstake a previously staked IOTA object.
+    pub async fn unstake_iota(
+        &self,
+        private_key: &Ed25519PrivateKey,
+        sender: &Address,
+        staked_object_id: ObjectId,
+    ) -> Result<TransferResult> {
+        let mut builder = TransactionBuilder::new(*sender).with_client(&self.client);
+        builder.unstake(staked_object_id);
+
+        let tx = builder
+            .finish()
+            .await
+            .context("Failed to build unstake transaction")?;
+
+        let dry_run = self
+            .client
+            .dry_run_tx(&tx, false)
+            .await
+            .context("Dry run failed")?;
+        if let Some(err) = dry_run.error {
+            bail!("Unstake transaction would fail: {err}");
+        }
+
+        let signature = private_key
+            .sign_transaction(&tx)
+            .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {e}"))?;
+
+        let effects = self
+            .client
+            .execute_tx(&[signature], &tx, None)
+            .await
+            .context("Failed to execute unstake transaction")?;
+
+        let digest = effects.digest().to_string();
+        let status = format!("{:?}", effects.status());
+
+        Ok(TransferResult { digest, status })
+    }
+
+    /// Query all StakedIota objects owned by the given address.
+    pub async fn get_stakes(&self, address: &Address) -> Result<Vec<StakedIotaSummary>> {
+        let filter = ObjectFilter {
+            type_: Some(StructTag::new_staked_iota().to_string()),
+            owner: Some(*address),
+            object_ids: None,
+        };
+
+        let page = self
+            .client
+            .objects(filter, PaginationFilter::default())
+            .await
+            .context("Failed to query staked objects")?;
+
+        let mut stakes = Vec::new();
+        for obj in page.data() {
+            let object_id = obj.object_id();
+            let move_struct = match &obj.data {
+                iota_sdk::types::ObjectData::Struct(s) => s,
+                _ => continue,
+            };
+            let bytes = &move_struct.contents;
+            // BCS layout: 32B id + 32B pool_id + 8B stake_activation_epoch + 8B principal
+            if bytes.len() < 80 {
+                continue;
+            }
+            let pool_id = ObjectId::new({
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes[32..64]);
+                arr
+            });
+            let stake_activation_epoch =
+                u64::from_le_bytes(bytes[64..72].try_into().unwrap());
+            let principal = u64::from_le_bytes(bytes[72..80].try_into().unwrap());
+
+            stakes.push(StakedIotaSummary {
+                object_id,
+                pool_id,
+                principal,
+                stake_activation_epoch,
+            });
+        }
+
+        Ok(stakes)
     }
 
     /// Request tokens from the faucet (testnet/devnet only).
@@ -201,6 +330,14 @@ impl NetworkClient {
 pub struct TransferResult {
     pub digest: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct StakedIotaSummary {
+    pub object_id: ObjectId,
+    pub pool_id: ObjectId,
+    pub principal: u64,
+    pub stake_activation_epoch: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

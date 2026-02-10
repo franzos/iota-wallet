@@ -1,7 +1,7 @@
 /// Output formatting — IOTA denomination conversion and display helpers.
 ///
 /// IOTA uses 9 decimal places (nanos). 1 IOTA = 1_000_000_000 nanos.
-use crate::network::{TransactionDirection, TransactionSummary};
+use crate::network::{StakedIotaSummary, TransactionDirection, TransactionSummary};
 
 const NANOS_PER_IOTA: u64 = 1_000_000_000;
 
@@ -103,6 +103,29 @@ pub fn format_transactions(txs: &[TransactionSummary]) -> String {
         };
         lines.push(format!("{dir}  {addr}  {amount}  {fee}  {}", tx.digest));
     }
+    lines.join("\n")
+}
+
+/// Format a list of staked IOTA objects for display.
+#[must_use]
+pub fn format_stakes(stakes: &[StakedIotaSummary]) -> String {
+    if stakes.is_empty() {
+        return "No active stakes.".to_string();
+    }
+
+    let mut lines = Vec::with_capacity(stakes.len() + 2);
+    let mut total: u64 = 0;
+    for s in stakes {
+        total = total.saturating_add(s.principal);
+        lines.push(format!(
+            "  {}  {}  epoch {}  pool {}",
+            s.object_id,
+            format_balance(s.principal),
+            s.stake_activation_epoch,
+            s.pool_id,
+        ));
+    }
+    lines.push(format!("\nTotal staked: {}", format_balance(total)));
     lines.join("\n")
 }
 
