@@ -4,12 +4,12 @@ use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
 use iota_sdk::crypto::IotaSigner;
 use iota_sdk::graphql_client::faucet::FaucetClient;
 use iota_sdk::graphql_client::pagination::PaginationFilter;
-use iota_sdk::graphql_client::query_types::{ObjectFilter, TransactionsFilter};
+use iota_sdk::graphql_client::query_types::TransactionsFilter;
 use iota_sdk::graphql_client::Client;
 use iota_sdk::transaction_builder::TransactionBuilder;
 use iota_sdk::transaction_builder::unresolved::Argument as UnresolvedArg;
 use iota_sdk::types::{
-    Address, Argument, Command as TxCommand, Digest, Input, ObjectId, StructTag, Transaction,
+    Address, Argument, Command as TxCommand, Digest, Input, ObjectId, Transaction,
     TransactionKind,
 };
 
@@ -177,47 +177,84 @@ impl NetworkClient {
         Ok(TransferResult { digest, status })
     }
 
-    /// Query all StakedIota objects owned by the given address.
+    /// Query all StakedIota objects owned by the given address, including
+    /// estimated rewards computed by the network.
     pub async fn get_stakes(&self, address: &Address) -> Result<Vec<StakedIotaSummary>> {
-        let filter = ObjectFilter {
-            type_: Some(StructTag::new_staked_iota().to_string()),
-            owner: Some(*address),
-            object_ids: None,
-        };
+        let query = serde_json::json!({
+            "query": r#"query ($owner: IotaAddress!) {
+                address(address: $owner) {
+                    stakedIotas {
+                        nodes {
+                            address
+                            stakeStatus
+                            activatedEpoch { epochId }
+                            poolId
+                            principal
+                            estimatedReward
+                        }
+                    }
+                }
+            }"#,
+            "variables": {
+                "owner": address.to_string()
+            }
+        });
 
-        let page = self
+        let response = self
             .client
-            .objects(filter, PaginationFilter::default())
+            .run_query_from_json(query.as_object().unwrap().clone())
             .await
             .context("Failed to query staked objects")?;
 
-        let mut stakes = Vec::new();
-        for obj in page.data() {
-            let object_id = obj.object_id();
-            let move_struct = match &obj.data {
-                iota_sdk::types::ObjectData::Struct(s) => s,
-                _ => continue,
-            };
-            let bytes = &move_struct.contents;
-            // BCS layout: 32B id + 32B pool_id + 8B stake_activation_epoch + 8B principal
-            if bytes.len() < 80 {
-                continue;
-            }
-            let pool_id = ObjectId::new({
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes[32..64]);
-                arr
-            });
-            let stake_activation_epoch =
-                u64::from_le_bytes(bytes[64..72].try_into().unwrap());
-            let principal = u64::from_le_bytes(bytes[72..80].try_into().unwrap());
+        let data = response.data.context("No data in staked IOTA response")?;
+        let nodes = data
+            .get("address")
+            .and_then(|a| a.get("stakedIotas"))
+            .and_then(|s| s.get("nodes"))
+            .and_then(|n| n.as_array())
+            .cloned()
+            .unwrap_or_default();
 
-            stakes.push(StakedIotaSummary {
-                object_id,
-                pool_id,
-                principal,
-                stake_activation_epoch,
-            });
+        let mut stakes = Vec::new();
+        for node in &nodes {
+            let object_id = node
+                .get("address")
+                .and_then(|v| v.as_str())
+                .and_then(|s| ObjectId::from_hex(s).ok());
+            let pool_id = node
+                .get("poolId")
+                .and_then(|v| v.as_str())
+                .and_then(|s| ObjectId::from_hex(s).ok());
+            let principal = node
+                .get("principal")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let stake_activation_epoch = node
+                .get("activatedEpoch")
+                .and_then(|v| v.get("epochId"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let estimated_reward = node
+                .get("estimatedReward")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<u64>().ok());
+            let status = match node.get("stakeStatus").and_then(|v| v.as_str()) {
+                Some("ACTIVE") => StakeStatus::Active,
+                Some("PENDING") => StakeStatus::Pending,
+                _ => StakeStatus::Unstaked,
+            };
+
+            if let (Some(object_id), Some(pool_id)) = (object_id, pool_id) {
+                stakes.push(StakedIotaSummary {
+                    object_id,
+                    pool_id,
+                    principal,
+                    stake_activation_epoch,
+                    estimated_reward,
+                    status,
+                });
+            }
         }
 
         Ok(stakes)
@@ -470,6 +507,25 @@ pub struct StakedIotaSummary {
     pub pool_id: ObjectId,
     pub principal: u64,
     pub stake_activation_epoch: u64,
+    pub estimated_reward: Option<u64>,
+    pub status: StakeStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StakeStatus {
+    Active,
+    Pending,
+    Unstaked,
+}
+
+impl std::fmt::Display for StakeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Active => write!(f, "active"),
+            Self::Pending => write!(f, "pending"),
+            Self::Unstaked => write!(f, "unstaked"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

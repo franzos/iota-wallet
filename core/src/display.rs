@@ -1,7 +1,7 @@
 /// Output formatting — IOTA denomination conversion and display helpers.
 ///
 /// IOTA uses 9 decimal places (nanos). 1 IOTA = 1_000_000_000 nanos.
-use crate::network::{StakedIotaSummary, TransactionDetailsSummary, TransactionDirection, TransactionSummary};
+use crate::network::{StakeStatus, StakedIotaSummary, TransactionDetailsSummary, TransactionDirection, TransactionSummary};
 
 const NANOS_PER_IOTA: u64 = 1_000_000_000;
 
@@ -114,18 +114,37 @@ pub fn format_stakes(stakes: &[StakedIotaSummary]) -> String {
     }
 
     let mut lines = Vec::with_capacity(stakes.len() + 2);
-    let mut total: u64 = 0;
+    let mut total_principal: u64 = 0;
+    let mut total_reward: u64 = 0;
     for s in stakes {
-        total = total.saturating_add(s.principal);
+        total_principal = total_principal.saturating_add(s.principal);
+        let reward_str = match s.estimated_reward {
+            Some(r) => {
+                total_reward = total_reward.saturating_add(r);
+                format!("  reward {}", format_balance(r))
+            }
+            None => String::new(),
+        };
+        let status_str = match s.status {
+            StakeStatus::Active => "",
+            StakeStatus::Pending => "  [pending]",
+            StakeStatus::Unstaked => "  [unstaked]",
+        };
         lines.push(format!(
-            "  {}  {}  epoch {}  pool {}",
+            "  {}  {}  epoch {}  pool {}{}{}",
             s.object_id,
             format_balance(s.principal),
             s.stake_activation_epoch,
             s.pool_id,
+            reward_str,
+            status_str,
         ));
     }
-    lines.push(format!("\nTotal staked: {}", format_balance(total)));
+    lines.push(format!(
+        "\nTotal staked: {}  rewards: {}",
+        format_balance(total_principal),
+        format_balance(total_reward),
+    ));
     lines.join("\n")
 }
 

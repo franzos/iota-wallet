@@ -402,6 +402,9 @@ impl Command {
                                 "principal_nanos": s.principal,
                                 "principal_iota": display::nanos_to_iota(s.principal),
                                 "stake_activation_epoch": s.stake_activation_epoch,
+                                "estimated_reward_nanos": s.estimated_reward,
+                                "estimated_reward_iota": s.estimated_reward.map(display::nanos_to_iota),
+                                "status": s.status.to_string(),
                             })
                         })
                         .collect();
