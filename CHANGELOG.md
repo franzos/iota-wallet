@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.3] - 2026-02-10
+
+### Changed
+- GUI: Reuse network client across operations instead of creating one per request
+- GUI: Cache theme object instead of allocating every frame
+- GUI: Use existing derived key instead of re-deriving from mnemonic on wallet open
+- Transaction deduplication uses HashSet for O(n) instead of O(n*m) linear scan
+
+### Fixed
+- GUI: Change Password now works after creating or recovering a wallet in the same session
+- GUI: Expanded transaction detail resets on page navigation
+- GUI: Account page no longer shows stale data after browsing history pages
+- Transaction cache database now has restrictive file permissions (0o600/0o700) on Unix
+- Faucet command now checks runtime network config, not just stored wallet config
+- Removed unnecessary JSON deep clones in staking and token balance queries
+- CLI no longer panics if `$HOME` is unset; returns an actionable error instead
+
 ## [0.1.2] - 2026-02-10
 
 ### Added

@@ -54,17 +54,18 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
-    fn wallet_dir(&self) -> PathBuf {
-        self.wallet_dir.clone().unwrap_or_else(|| {
-            dirs::home_dir()
-                .expect("Cannot determine home directory. Set $HOME or use --wallet-dir.")
-                .join(".iota-wallet")
-        })
+    fn wallet_dir(&self) -> Result<PathBuf> {
+        match &self.wallet_dir {
+            Some(dir) => Ok(dir.clone()),
+            None => Ok(dirs::home_dir()
+                .context("Cannot determine home directory. Set $HOME or use --wallet-dir.")?
+                .join(".iota-wallet")),
+        }
     }
 
     fn wallet_path(&self) -> Result<PathBuf> {
         validate_wallet_name(&self.wallet)?;
-        Ok(self.wallet_dir().join(format!("{}.wallet", self.wallet)))
+        Ok(self.wallet_dir()?.join(format!("{}.wallet", self.wallet)))
     }
 
     fn network_config(&self) -> NetworkConfig {

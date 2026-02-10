@@ -13,7 +13,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
     println!("Network: {}", cli.network_config().network);
     println!();
 
-    let wallet_dir = cli.wallet_dir();
+    let wallet_dir = cli.wallet_dir()?;
     std::fs::create_dir_all(&wallet_dir)
         .context("Failed to create wallet directory")?;
 

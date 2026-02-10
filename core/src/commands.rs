@@ -459,9 +459,6 @@ impl Command {
             }
 
             Command::Faucet => {
-                if wallet.is_mainnet() {
-                    bail!("Faucet is not available on mainnet.");
-                }
                 network.faucet(wallet.address()).await?;
                 let addr = wallet.address().to_string();
                 if json_output {

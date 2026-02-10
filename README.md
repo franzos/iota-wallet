@@ -1,8 +1,8 @@
 # IOTA Wallet
 
-A Monero-inspired REPL/GUI wallet for IOTA Rebased. Supports interactive mode, one-shot commands for scripting, a native GUI, and encrypted wallet files.
+A Monero-inspired wallet for IOTA Rebased. Supports interactive mode, one-shot commands for scripting, a native GUI, and encrypted wallet files.
 
-NOTE: This is an early prototype. Use at your own risk. Always test with small amounts first and verify transactions on the explorer.
+**NOTE: This is an early prototype. Use at your own risk.**
 
 ## Install
 

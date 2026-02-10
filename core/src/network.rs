@@ -195,16 +195,16 @@ impl NetworkClient {
             .context("Failed to query staked objects")?;
 
         let data = response.data.context("No data in staked IOTA response")?;
+        let empty = vec![];
         let nodes = data
             .get("address")
             .and_then(|a| a.get("stakedIotas"))
             .and_then(|s| s.get("nodes"))
             .and_then(|n| n.as_array())
-            .cloned()
-            .unwrap_or_default();
+            .unwrap_or(&empty);
 
         let mut stakes = Vec::new();
-        for node in &nodes {
+        for node in nodes {
             let object_id = node
                 .get("address")
                 .and_then(|v| v.as_str())
@@ -609,16 +609,16 @@ impl NetworkClient {
             .context("Failed to query token balances")?;
 
         let data = response.data.context("No data in balances response")?;
+        let empty = vec![];
         let nodes = data
             .get("address")
             .and_then(|a| a.get("balances"))
             .and_then(|b| b.get("nodes"))
             .and_then(|n| n.as_array())
-            .cloned()
-            .unwrap_or_default();
+            .unwrap_or(&empty);
 
         let mut balances = Vec::new();
-        for node in &nodes {
+        for node in nodes {
             let coin_type = node
                 .get("coinType")
                 .and_then(|v| v.get("repr"))
