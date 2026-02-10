@@ -2,6 +2,7 @@
 use anyhow::{Result, bail};
 use iota_sdk::types::{Address, Digest, ObjectId};
 
+use crate::cache::TransactionCache;
 use crate::display;
 use crate::network::{NetworkClient, TransactionFilter};
 use crate::wallet::Wallet;
@@ -297,7 +298,13 @@ impl Command {
             }
 
             Command::ShowTransfers { filter } => {
-                let txs = network.transactions(wallet.address(), filter.clone()).await?;
+                network.sync_transactions(wallet.address()).await?;
+                let txs = {
+                    let cache = TransactionCache::open()?;
+                    let network_str = wallet.network_config().network.to_string();
+                    let address_str = wallet.address().to_string();
+                    cache.query(&network_str, &address_str, filter, 25, 0)?.transactions
+                };
                 if json_output {
                     let json_txs: Vec<serde_json::Value> = txs
                         .iter()

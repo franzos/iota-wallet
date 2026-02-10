@@ -21,6 +21,8 @@ aes-gcm = "0.10"
 rand = "0.8"
 bip39 = { version = "2", features = ["rand"] }
 zeroize = { version = "1", features = ["derive"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+dirs = "5"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

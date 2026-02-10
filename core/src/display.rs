@@ -40,9 +40,9 @@ pub fn parse_iota_amount(input: &str) -> Result<u64, String> {
     if let Ok(nanos) = input.parse::<u64>() {
         // If the number is very large, assume it's nanos. If small, assume IOTA.
         // To avoid ambiguity, we always treat bare integers as IOTA.
-        return Ok(nanos.checked_mul(NANOS_PER_IOTA).ok_or_else(|| {
+        return nanos.checked_mul(NANOS_PER_IOTA).ok_or_else(|| {
             "Amount too large".to_string()
-        })?);
+        });
     }
 
     // Try parsing as decimal IOTA
@@ -97,7 +97,7 @@ pub fn format_transactions(txs: &[TransactionSummary]) -> String {
         let addr = tx.sender.as_deref().unwrap_or("-");
         let amount = tx
             .amount
-            .map(|a| nanos_to_iota(a))
+            .map(nanos_to_iota)
             .unwrap_or_else(|| "-".to_string());
         let fee = match (tx.direction, tx.fee) {
             (Some(TransactionDirection::Out), Some(f)) => nanos_to_iota(f),

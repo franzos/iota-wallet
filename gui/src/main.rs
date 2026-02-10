@@ -19,6 +19,7 @@ use iota_sdk::crypto::FromMnemonic;
 use iota_sdk::types::{Address, ObjectId};
 use std::fmt;
 
+use iota_wallet_core::cache::{TransactionCache, TransactionPage};
 use iota_wallet_core::display::{format_balance, nanos_to_iota, parse_iota_amount};
 use iota_wallet_core::{list_wallets, validate_wallet_name};
 use iota_wallet_core::network::{
@@ -123,7 +124,7 @@ enum Message {
     RequestFaucet,
     FaucetCompleted(Result<(), String>),
     CopyAddress,
-    TransactionsLoaded(Result<Vec<TransactionSummary>, String>),
+    TransactionsLoaded(Result<(Vec<TransactionSummary>, u32), String>),
 
     // Send
     ConfirmSend,
@@ -132,6 +133,9 @@ enum Message {
     // History
     ToggleTxDetail(usize),
     OpenExplorer(String),
+    RefreshHistory,
+    HistoryNextPage,
+    HistoryPrevPage,
 
     // Staking
     ValidatorAddressChanged(String),
@@ -179,6 +183,8 @@ struct App {
 
     // History
     expanded_tx: Option<usize>,
+    history_page: u32,
+    history_total: u32,
 
     // Staking
     stakes: Vec<StakedIotaSummary>,
@@ -222,6 +228,8 @@ impl App {
             balance: None,
             transactions: Vec::new(),
             expanded_tx: None,
+            history_page: 0,
+            history_total: 0,
             stakes: Vec::new(),
             validator_address: String::new(),
             stake_amount: String::new(),
@@ -532,7 +540,10 @@ impl App {
 
             Message::TransactionsLoaded(result) => {
                 match result {
-                    Ok(txs) => self.transactions = txs,
+                    Ok((txs, total)) => {
+                        self.transactions = txs;
+                        self.history_total = total;
+                    }
                     Err(e) => self.error_message = Some(e),
                 }
                 Task::none()
@@ -601,6 +612,18 @@ impl App {
                     self.expanded_tx = Some(idx);
                 }
                 Task::none()
+            }
+
+            Message::RefreshHistory => self.refresh_dashboard(),
+
+            Message::HistoryNextPage => {
+                self.history_page += 1;
+                self.load_history_page()
+            }
+
+            Message::HistoryPrevPage => {
+                self.history_page = self.history_page.saturating_sub(1);
+                self.load_history_page()
             }
 
             Message::OpenExplorer(digest) => {
@@ -825,6 +848,7 @@ impl App {
             return Task::none();
         };
         self.loading = true;
+        self.history_page = 0;
 
         let addr1 = info.address;
         let cfg1 = info.network_config.clone();
@@ -844,13 +868,39 @@ impl App {
             Task::perform(
                 async move {
                     let net = NetworkClient::new(&cfg2, false)?;
-                    net.transactions(&addr2, TransactionFilter::All).await
+                    net.sync_transactions(&addr2).await?;
+                    // Cache ops are sync — no await, no Send issue
+                    let cache = TransactionCache::open()?;
+                    let network_str = cfg2.network.to_string();
+                    let address_str = addr2.to_string();
+                    let page = cache.query(&network_str, &address_str, &TransactionFilter::All, 25, 0)?;
+                    Ok((page.transactions, page.total))
                 },
-                |r: Result<Vec<TransactionSummary>, anyhow::Error>| {
+                |r: Result<(Vec<TransactionSummary>, u32), anyhow::Error>| {
                     Message::TransactionsLoaded(r.map_err(|e| e.to_string()))
                 },
             ),
         ])
+    }
+
+    fn load_history_page(&mut self) -> Task<Message> {
+        let Some(info) = &self.wallet_info else {
+            return Task::none();
+        };
+        let network_str = info.network_config.network.to_string();
+        let address_str = info.address.to_string();
+        let offset = self.history_page * 25;
+
+        Task::perform(
+            async move {
+                let cache = TransactionCache::open()?;
+                let page = cache.query(&network_str, &address_str, &TransactionFilter::All, 25, offset)?;
+                Ok((page.transactions, page.total))
+            },
+            |r: Result<(Vec<TransactionSummary>, u32), anyhow::Error>| {
+                Message::TransactionsLoaded(r.map_err(|e| e.to_string()))
+            },
+        )
     }
 
     fn load_stakes(&mut self) -> Task<Message> {
@@ -1569,13 +1619,40 @@ impl App {
 
     fn view_history(&self) -> Element<Message> {
         let title = text("Transaction History").size(24);
+        let refresh = button(text("Refresh").size(14)).on_press(Message::RefreshHistory);
 
-        let mut col = column![title, Space::new().height(10)].spacing(5);
+        let mut col = column![
+            row![title, Space::new().width(10), refresh].align_y(iced::Alignment::Center),
+            Space::new().height(10),
+        ].spacing(5);
 
         if self.transactions.is_empty() {
             col = col.push(text("No transactions yet.").size(14));
         } else {
             col = col.push(self.view_tx_table(&self.transactions, true));
+
+            // Pagination controls
+            let page_num = self.history_page + 1;
+            let total_pages = (self.history_total + 24) / 25; // ceil div
+
+            let mut nav = row![].spacing(10).align_y(iced::Alignment::Center);
+
+            let mut prev = button(text("Prev").size(12));
+            if self.history_page > 0 {
+                prev = prev.on_press(Message::HistoryPrevPage);
+            }
+            nav = nav.push(prev);
+
+            nav = nav.push(text(format!("Page {page_num} of {total_pages}")).size(12));
+
+            let mut next = button(text("Next").size(12));
+            if (self.history_page + 1) * 25 < self.history_total {
+                next = next.on_press(Message::HistoryNextPage);
+            }
+            nav = nav.push(next);
+
+            col = col.push(Space::new().height(10));
+            col = col.push(nav);
         }
 
         if let Some(err) = &self.error_message {

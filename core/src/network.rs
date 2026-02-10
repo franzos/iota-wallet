@@ -1,9 +1,11 @@
 /// Thin wrapper around the SDK's GraphQL client for network operations.
+use std::collections::HashSet;
+
 use anyhow::{Context, Result, bail};
 use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
 use iota_sdk::crypto::IotaSigner;
 use iota_sdk::graphql_client::faucet::FaucetClient;
-use iota_sdk::graphql_client::pagination::PaginationFilter;
+use iota_sdk::graphql_client::pagination::{Direction, PaginationFilter};
 use iota_sdk::graphql_client::query_types::TransactionsFilter;
 use iota_sdk::graphql_client::Client;
 use iota_sdk::transaction_builder::TransactionBuilder;
@@ -12,6 +14,8 @@ use iota_sdk::types::{
     Address, Argument, Command as TxCommand, Digest, Input, ObjectId, Transaction,
     TransactionKind,
 };
+
+use crate::cache::TransactionCache;
 
 use crate::wallet::{Network, NetworkConfig};
 
@@ -352,6 +356,155 @@ impl NetworkClient {
             .collect();
 
         Ok(summaries)
+    }
+
+    /// Sync transactions for the given address into the local cache.
+    ///
+    /// Opens the cache internally so no `&TransactionCache` is held across
+    /// await points (Connection is Send but not Sync).
+    ///
+    /// Fetches up to 7 epochs of history on first sync. On subsequent syncs,
+    /// stops as soon as it hits transactions already in the cache.
+    pub async fn sync_transactions(
+        &self,
+        address: &Address,
+    ) -> Result<()> {
+        let network_str = self.network.to_string();
+        let address_str = address.to_string();
+
+        // Phase 1: read known digests from cache (sync, then drop)
+        let known = {
+            let cache = TransactionCache::open()?;
+            cache.known_digests(&network_str, &address_str)?
+        };
+
+        // Phase 2: fetch from network (async — no cache held)
+        let current_epoch = self
+            .client
+            .epoch(None)
+            .await
+            .context("Failed to query current epoch")?
+            .context("No epoch data available")?
+            .epoch_id;
+
+        let min_epoch = current_epoch.saturating_sub(7);
+
+        let sent = self
+            .fetch_paginated(
+                TransactionsFilter {
+                    sign_address: Some(*address),
+                    ..Default::default()
+                },
+                TransactionDirection::Out,
+                &known,
+                min_epoch,
+            )
+            .await?;
+
+        let recv = self
+            .fetch_paginated(
+                TransactionsFilter {
+                    recv_address: Some(*address),
+                    ..Default::default()
+                },
+                TransactionDirection::In,
+                &known,
+                min_epoch,
+            )
+            .await?;
+
+        // Phase 3: write results to cache (sync, reopen)
+        let cache = TransactionCache::open()?;
+        if !sent.is_empty() {
+            cache.insert(&network_str, &address_str, &sent)?;
+        }
+        if !recv.is_empty() {
+            cache.insert(&network_str, &address_str, &recv)?;
+        }
+        cache.set_sync_epoch(&network_str, &address_str, current_epoch)?;
+
+        Ok(())
+    }
+
+    /// Paginate backward (newest first) through transactions, collecting results
+    /// until we hit known digests or pass the minimum epoch.
+    async fn fetch_paginated(
+        &self,
+        filter: TransactionsFilter,
+        direction: TransactionDirection,
+        known: &HashSet<String>,
+        min_epoch: u64,
+    ) -> Result<Vec<TransactionSummary>> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let pagination = PaginationFilter {
+                direction: Direction::Backward,
+                cursor: cursor.clone(),
+                limit: Some(50),
+            };
+
+            let page = self
+                .client
+                .transactions_data_effects(Some(filter.clone()), pagination)
+                .await
+                .context("Failed to query transactions")?;
+
+            let data = page.data();
+            if data.is_empty() {
+                break;
+            }
+
+            let mut hit_boundary = false;
+            for item in data {
+                let digest = item.tx.transaction.digest().to_string();
+                let epoch = item.effects.epoch();
+
+                // Skip items outside the lookback window
+                if epoch < min_epoch {
+                    hit_boundary = true;
+                    continue;
+                }
+
+                // Skip already-known transactions, but keep processing the
+                // page — items are in chronological order so new transactions
+                // may appear after known ones within the same page.
+                if known.contains(&digest) {
+                    hit_boundary = true;
+                    continue;
+                }
+
+                let (sender, amount) = match &item.tx.transaction {
+                    Transaction::V1(v1) => {
+                        let sender = Some(v1.sender.to_string());
+                        let amount = extract_transfer_amount(&v1.kind);
+                        (sender, amount)
+                    }
+                };
+                let net = item.effects.gas_summary().net_gas_usage();
+                let fee = if net > 0 { Some(net as u64) } else { None };
+
+                all.push(TransactionSummary {
+                    digest,
+                    direction: Some(direction),
+                    timestamp: None,
+                    sender,
+                    amount,
+                    fee,
+                    epoch,
+                    lamport_version: item.effects.as_v1().lamport_version,
+                });
+            }
+
+            let info = page.page_info();
+            if hit_boundary || !info.has_previous_page {
+                break;
+            }
+            cursor = info.start_cursor.clone();
+        }
+
+        Ok(all)
     }
 
     /// Sweep the entire balance to a recipient address by transferring the gas
