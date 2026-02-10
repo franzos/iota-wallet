@@ -2,15 +2,16 @@ use iced::widget::{button, column, container, row, scrollable, svg, text, text_i
 use iced::theme::Palette;
 use iced::{Color, Element, Fill, Length, Padding, Task, Theme};
 
-// IOTA brand palette
-const BG:      Color = Color::from_rgb(0.04, 0.055, 0.10);
-const SIDEBAR: Color = Color::from_rgb(0.03, 0.047, 0.094);
-const SURFACE: Color = Color::from_rgb(0.063, 0.094, 0.157);
-const BORDER:  Color = Color::from_rgb(0.102, 0.157, 0.282);
-const ACTIVE:  Color = Color::from_rgb(0.047, 0.125, 0.314);
-const MUTED:   Color = Color::from_rgb(0.314, 0.408, 0.533);
-const PRIMARY: Color = Color::from_rgb(0.0, 0.44, 0.94);
-use std::path::{Path, PathBuf};
+// IOTA Explorer dark-mode palette (iota2.darkmode)
+const BG:      Color = Color::from_rgb(0.051, 0.067, 0.090); // #0d1117
+const SIDEBAR: Color = Color::from_rgb(0.024, 0.039, 0.063); // #060a10
+const SURFACE: Color = Color::from_rgb(0.114, 0.157, 0.227); // #1d283a (iota2-gray-800)
+const BORDER:  Color = Color::from_rgb(0.204, 0.259, 0.337); // #344256 (iota2-gray-700)
+const ACTIVE:  Color = Color::from_rgb(0.086, 0.137, 0.251); // #162340
+const MUTED:   Color = Color::from_rgb(0.396, 0.459, 0.545); // #65758b (iota2-gray-500)
+const PRIMARY: Color = Color::from_rgb(0.145, 0.349, 0.961); // #2559f5 (iota2-blue-600)
+use std::path::PathBuf;
+use std::sync::Arc;
 use zeroize::{Zeroize, Zeroizing};
 
 use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
@@ -253,11 +254,11 @@ impl App {
     fn theme(&self) -> Theme {
         Theme::custom("IOTA".to_string(), Palette {
             background: BG,
-            text: Color::from_rgb(0.82, 0.86, 0.91),
+            text: Color::from_rgb(0.988, 0.988, 0.988),   // #fcfcfc
             primary: PRIMARY,
-            success: Color::from_rgb(0.0, 0.80, 0.53),
-            warning: Color::from_rgb(0.94, 0.63, 0.19),
-            danger: Color::from_rgb(0.88, 0.25, 0.31),
+            success: Color::from_rgb(0.059, 0.757, 0.718), // #0fc1b7 (main-green)
+            warning: Color::from_rgb(1.0, 0.757, 0.027),   // #ffc107
+            danger: Color::from_rgb(0.906, 0.192, 0.192),  // #e73131 (iota2-red-600)
         })
     }
 
@@ -1099,7 +1100,7 @@ impl App {
             col = col.push(text("Unlocking...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
         col.into()
@@ -1145,7 +1146,7 @@ impl App {
             col = col.push(text("Creating wallet...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
         col.into()
@@ -1157,7 +1158,7 @@ impl App {
             "Save these 24 words in a safe place. You will need them to recover your wallet.",
         )
         .size(14)
-        .color([0.94, 0.63, 0.19]);
+        .color([1.0, 0.757, 0.027]);
 
         let words: Vec<&str> = mnemonic.split_whitespace().collect();
 
@@ -1233,7 +1234,7 @@ impl App {
             col = col.push(text("Recovering wallet...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
         col.into()
@@ -1269,8 +1270,8 @@ impl App {
                 None => "",
             };
             let dir_color = match tx.direction {
-                Some(TransactionDirection::In) => Color::from_rgb(0.0, 0.80, 0.53),
-                Some(TransactionDirection::Out) => Color::from_rgb(0.88, 0.25, 0.31),
+                Some(TransactionDirection::In) => Color::from_rgb(0.059, 0.757, 0.718),
+                Some(TransactionDirection::Out) => Color::from_rgb(0.906, 0.192, 0.192),
                 None => MUTED,
             };
 
@@ -1397,7 +1398,7 @@ impl App {
                     .width(Fill)
                     .style(|_theme| container::Style {
                         background: Some(iced::Background::Color(Color::from_rgb(
-                            0.12, 0.12, 0.12,
+                            0.114, 0.157, 0.227,
                         ))),
                         border: iced::Border {
                             color: BORDER,
@@ -1442,13 +1443,13 @@ impl App {
             col = col.push(text("Loading...").size(14));
         }
         if let Some(msg) = &self.status_message {
-            col = col.push(text(msg.as_str()).size(12).color([0.0, 0.80, 0.53]));
+            col = col.push(text(msg.as_str()).size(12).color([0.059, 0.757, 0.718]));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
+            col = col.push(text(msg.as_str()).size(14).color([0.059, 0.757, 0.718]));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
         // Recent transactions
@@ -1515,10 +1516,10 @@ impl App {
             col = col.push(text("Sending...").size(14));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
+            col = col.push(text(msg.as_str()).size(14).color([0.059, 0.757, 0.718]));
         }
 
         col.into()
@@ -1560,7 +1561,7 @@ impl App {
         .max_width(600);
 
         if let Some(msg) = &self.status_message {
-            col = col.push(text(msg.as_str()).size(12).color([0.0, 0.80, 0.53]));
+            col = col.push(text(msg.as_str()).size(12).color([0.059, 0.757, 0.718]));
         }
 
         col.into()
@@ -1578,7 +1579,7 @@ impl App {
         }
 
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
         scrollable(col).into()
@@ -1642,8 +1643,8 @@ impl App {
                 };
 
                 let status_color = match stake.status {
-                    StakeStatus::Active => Color::from_rgb(0.0, 0.80, 0.53),
-                    StakeStatus::Pending => Color::from_rgb(0.94, 0.63, 0.19),
+                    StakeStatus::Active => Color::from_rgb(0.059, 0.757, 0.718),
+                    StakeStatus::Pending => Color::from_rgb(1.0, 0.757, 0.027),
                     StakeStatus::Unstaked => MUTED,
                 };
 
@@ -1709,10 +1710,10 @@ impl App {
             col = col.push(text("Processing...").size(14));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
+            col = col.push(text(msg.as_str()).size(14).color([0.059, 0.757, 0.718]));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
         }
 
         scrollable(col).into()
@@ -1764,7 +1765,7 @@ impl App {
             col = col.push(
                 text("Changing network applies to the current session only.")
                     .size(12)
-                    .color([0.314, 0.408, 0.533]),
+                    .color(MUTED),
             );
 
             // -- Change password --
@@ -1802,10 +1803,10 @@ impl App {
                 col = col.push(text("Changing password...").size(14));
             }
             if let Some(msg) = &self.success_message {
-                col = col.push(text(msg.as_str()).size(14).color([0.0, 0.80, 0.53]));
+                col = col.push(text(msg.as_str()).size(14).color([0.059, 0.757, 0.718]));
             }
             if let Some(err) = &self.error_message {
-                col = col.push(text(err.as_str()).size(14).color([0.88, 0.25, 0.31]));
+                col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
             }
         }
 
