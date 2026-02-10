@@ -44,9 +44,19 @@ impl TransactionCache {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .context("Failed to create cache directory")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+            }
         }
         let conn = Connection::open(&path)
             .context("Failed to open transaction cache database")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        }
         let cache = Self { conn };
         cache.init_schema()?;
         Ok(cache)

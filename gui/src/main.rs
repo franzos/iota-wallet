@@ -316,6 +316,7 @@ struct App {
     // Dashboard
     balance: Option<u64>,
     transactions: Vec<TransactionSummary>,
+    account_transactions: Vec<TransactionSummary>,
     epoch_deltas: Vec<(u64, i64)>,
     balance_chart: BalanceChart,
 
@@ -365,6 +366,7 @@ impl App {
             created_mnemonic: None,
             balance: None,
             transactions: Vec::new(),
+            account_transactions: Vec::new(),
             epoch_deltas: Vec::new(),
             balance_chart: BalanceChart::new(),
             expanded_tx: None,
@@ -556,6 +558,7 @@ impl App {
                 self.loading = false;
                 match result {
                     Ok((info, mnemonic)) => {
+                        self.selected_wallet = Some(self.wallet_name.clone());
                         self.wallet_info = Some(info);
                         self.created_mnemonic = Some(mnemonic);
                     }
@@ -614,6 +617,7 @@ impl App {
                 self.loading = false;
                 match result {
                     Ok(info) => {
+                        self.selected_wallet = Some(self.wallet_name.clone());
                         self.wallet_info = Some(info);
                         self.clear_form();
                         self.screen = Screen::Account;
@@ -686,6 +690,9 @@ impl App {
             Message::TransactionsLoaded(result) => {
                 match result {
                     Ok((txs, total, deltas)) => {
+                        if self.history_page == 0 {
+                            self.account_transactions = txs.clone();
+                        }
                         self.transactions = txs;
                         self.history_total = total;
                         if !deltas.is_empty() {
@@ -766,11 +773,13 @@ impl App {
             Message::RefreshHistory => self.refresh_dashboard(),
 
             Message::HistoryNextPage => {
+                self.expanded_tx = None;
                 self.history_page += 1;
                 self.load_history_page()
             }
 
             Message::HistoryPrevPage => {
+                self.expanded_tx = None;
                 self.history_page = self.history_page.saturating_sub(1);
                 self.load_history_page()
             }
@@ -1688,12 +1697,12 @@ impl App {
         col = col.push(Space::new().height(10));
         col = col.push(text("Recent Transactions").size(18));
 
-        if self.transactions.is_empty() {
+        if self.account_transactions.is_empty() {
             col = col.push(text("No transactions yet.").size(14));
         } else {
-            let count = self.transactions.len().min(5);
-            col = col.push(self.view_tx_table(&self.transactions[..count], false));
-            if self.transactions.len() > 5 {
+            let count = self.account_transactions.len().min(5);
+            col = col.push(self.view_tx_table(&self.account_transactions[..count], false));
+            if self.account_transactions.len() > 5 {
                 col = col.push(
                     button(text("View all transactions").size(12))
                         .style(button::text)
