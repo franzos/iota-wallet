@@ -91,6 +91,10 @@ impl NetworkClient {
             .await
             .context("Failed to execute transaction")?;
 
+        if let Some(error) = effects.status().error() {
+            bail!("Transaction failed: {error:?} (digest: {})", effects.digest());
+        }
+
         Ok(TransferResult {
             digest: effects.digest().to_string(),
             status: format!("{:?}", effects.status()),
