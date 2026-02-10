@@ -59,9 +59,10 @@ impl std::fmt::Display for Network {
 }
 
 /// Generate a new 24-word BIP-39 mnemonic.
-fn generate_mnemonic() -> String {
-    let mnemonic = bip39::Mnemonic::generate(24).expect("mnemonic generation failed");
-    mnemonic.to_string()
+fn generate_mnemonic() -> Result<String> {
+    let mnemonic = bip39::Mnemonic::generate(24)
+        .map_err(|e| anyhow::anyhow!("Failed to generate mnemonic: {e}"))?;
+    Ok(mnemonic.to_string())
 }
 
 /// In-memory wallet with derived key material.
@@ -79,7 +80,7 @@ impl Wallet {
         password: &[u8],
         network_config: NetworkConfig,
     ) -> Result<Self> {
-        let mnemonic = generate_mnemonic();
+        let mnemonic = generate_mnemonic()?;
 
         let private_key = Ed25519PrivateKey::from_mnemonic(&mnemonic, None, None)
             .map_err(|e| anyhow::anyhow!("Failed to derive key from mnemonic: {e}"))?;
