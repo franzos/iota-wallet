@@ -7,7 +7,9 @@ use iota_sdk::graphql_client::pagination::PaginationFilter;
 use iota_sdk::graphql_client::query_types::TransactionsFilter;
 use iota_sdk::graphql_client::Client;
 use iota_sdk::transaction_builder::TransactionBuilder;
-use iota_sdk::types::Address;
+use iota_sdk::types::{
+    Address, Argument, Command as TxCommand, Input, Transaction, TransactionKind,
+};
 
 use crate::wallet::{Network, NetworkConfig};
 
@@ -115,73 +117,72 @@ impl NetworkClient {
     }
 
     /// Query recent transactions involving the given address.
+    ///
+    /// Always queries both sent and received to determine true direction,
+    /// since outgoing txs can also appear in recv queries (change).
     pub async fn transactions(
         &self,
         address: &Address,
         filter: TransactionFilter,
     ) -> Result<Vec<TransactionSummary>> {
-        let gql_filter = match filter {
-            TransactionFilter::In => TransactionsFilter {
-                recv_address: Some(*address),
-                ..Default::default()
-            },
-            TransactionFilter::Out => TransactionsFilter {
+        let sent = self.query_transactions(
+            TransactionsFilter {
                 sign_address: Some(*address),
                 ..Default::default()
             },
-            TransactionFilter::All => {
-                // The SDK filter doesn't support OR, so query both and merge
-                let sent = self.query_transactions(
-                    TransactionsFilter {
-                        sign_address: Some(*address),
-                        ..Default::default()
-                    },
-                ).await?;
-                let recv = self.query_transactions(
-                    TransactionsFilter {
-                        recv_address: Some(*address),
-                        ..Default::default()
-                    },
-                ).await?;
+            TransactionDirection::Out,
+        ).await?;
+        let recv = self.query_transactions(
+            TransactionsFilter {
+                recv_address: Some(*address),
+                ..Default::default()
+            },
+            TransactionDirection::In,
+        ).await?;
 
-                let mut all = sent;
-                for tx in recv {
-                    if !all.iter().any(|t| t.digest == tx.digest) {
-                        all.push(tx);
-                    }
-                }
-                // TODO: sort by timestamp descending once timestamps are available
-                all.sort_by(|a, b| b.digest.cmp(&a.digest));
-                return Ok(all);
+        // Merge: sent takes priority (a tx you signed is "out" even if you also received change)
+        let mut all = sent;
+        for tx in recv {
+            if !all.iter().any(|t| t.digest == tx.digest) {
+                all.push(tx);
             }
-        };
+        }
+        all.sort_by(|a, b| b.digest.cmp(&a.digest));
 
-        self.query_transactions(gql_filter).await
+        // Apply filter
+        match filter {
+            TransactionFilter::All => Ok(all),
+            TransactionFilter::In => Ok(all.into_iter().filter(|t| t.direction == Some(TransactionDirection::In)).collect()),
+            TransactionFilter::Out => Ok(all.into_iter().filter(|t| t.direction == Some(TransactionDirection::Out)).collect()),
+        }
     }
 
     async fn query_transactions(
         &self,
         filter: TransactionsFilter,
+        direction: TransactionDirection,
     ) -> Result<Vec<TransactionSummary>> {
         let page = self
             .client
-            .transactions(Some(filter), PaginationFilter::default())
+            .transactions_data_effects(Some(filter), PaginationFilter::default())
             .await
             .context("Failed to query transactions")?;
 
         let summaries = page
             .data()
             .iter()
-            .map(|tx| {
-                let digest = tx.transaction.digest().to_string();
-                TransactionSummary {
-                    digest,
-                    kind: "transaction".to_string(),
-                    // TODO: populate from SDK when richer transaction data is available
-                    timestamp: None,
-                    sender: None,
-                    amount: None,
-                }
+            .map(|item| {
+                let digest = item.tx.transaction.digest().to_string();
+                let (sender, amount) = match &item.tx.transaction {
+                    Transaction::V1(v1) => {
+                        let sender = Some(v1.sender.to_string());
+                        let amount = extract_transfer_amount(&v1.kind);
+                        (sender, amount)
+                    }
+                };
+                let net = item.effects.gas_summary().net_gas_usage();
+                let fee = if net > 0 { Some(net as u64) } else { None };
+                TransactionSummary { digest, direction: Some(direction), timestamp: None, sender, amount, fee }
             })
             .collect();
 
@@ -230,16 +231,56 @@ impl TransactionFilter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TransactionDirection {
+    In,
+    Out,
+}
+
+impl std::fmt::Display for TransactionDirection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::In => write!(f, "in"),
+            Self::Out => write!(f, "out"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TransactionSummary {
     pub digest: String,
-    pub kind: String,
-    /// Transaction timestamp, if available from the SDK.
+    pub direction: Option<TransactionDirection>,
     pub timestamp: Option<String>,
-    /// Sender address, if available from the SDK.
     pub sender: Option<String>,
-    /// Amount in nanos, if available from the SDK.
     pub amount: Option<u64>,
+    /// Net gas fee in nanos (computation + storage - rebate).
+    pub fee: Option<u64>,
+}
+
+/// Best-effort extraction of the transfer amount from a ProgrammableTransaction.
+/// Works for standard SplitCoins-based IOTA transfers built by the SDK.
+fn extract_transfer_amount(kind: &TransactionKind) -> Option<u64> {
+    let ptb = kind.as_programmable_transaction_opt()?;
+    for cmd in &ptb.commands {
+        if let TxCommand::SplitCoins(split) = cmd {
+            // Sum all split amounts (typically just one for simple transfers)
+            let mut total: u64 = 0;
+            for arg in &split.amounts {
+                if let Argument::Input(idx) = arg {
+                    if let Some(Input::Pure { value }) = ptb.inputs.get(*idx as usize) {
+                        if value.len() == 8 {
+                            let nanos = u64::from_le_bytes(value[..8].try_into().ok()?);
+                            total = total.checked_add(nanos)?;
+                        }
+                    }
+                }
+            }
+            if total > 0 {
+                return Some(total);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

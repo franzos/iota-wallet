@@ -1,7 +1,7 @@
 /// Output formatting — IOTA denomination conversion and display helpers.
 ///
 /// IOTA uses 9 decimal places (nanos). 1 IOTA = 1_000_000_000 nanos.
-use crate::network::TransactionSummary;
+use crate::network::{TransactionDirection, TransactionSummary};
 
 const NANOS_PER_IOTA: u64 = 1_000_000_000;
 
@@ -86,23 +86,24 @@ pub fn format_transactions(txs: &[TransactionSummary]) -> String {
         return "No transactions found.".to_string();
     }
 
-    let mut output = String::new();
-    output.push_str(&format!("{:<66}  {}\n", "Digest", "Kind"));
-    output.push_str(&format!("{:-<66}  {:-<20}\n", "", ""));
+    let mut lines = Vec::with_capacity(txs.len());
     for tx in txs {
-        output.push_str(&format!("{:<66}  {}", tx.digest, tx.kind));
-        if let Some(ts) = &tx.timestamp {
-            output.push_str(&format!("  [{ts}]"));
-        }
-        if let Some(sender) = &tx.sender {
-            output.push_str(&format!("  from {sender}"));
-        }
-        if let Some(amount) = tx.amount {
-            output.push_str(&format!("  {}", format_balance(amount)));
-        }
-        output.push('\n');
+        let dir = match tx.direction {
+            Some(d) => format!("{:<3}", d),
+            None => "   ".to_string(),
+        };
+        let addr = tx.sender.as_deref().unwrap_or("-");
+        let amount = tx
+            .amount
+            .map(|a| nanos_to_iota(a))
+            .unwrap_or_else(|| "-".to_string());
+        let fee = match (tx.direction, tx.fee) {
+            (Some(TransactionDirection::Out), Some(f)) => nanos_to_iota(f),
+            _ => "-".to_string(),
+        };
+        lines.push(format!("{dir}  {addr}  {amount}  {fee}  {}", tx.digest));
     }
-    output
+    lines.join("\n")
 }
 
 /// Format balance as JSON.
@@ -234,18 +235,59 @@ mod tests {
     }
 
     #[test]
-    fn format_transactions_table() {
+    fn format_transactions_compact() {
         let txs = vec![
             TransactionSummary {
-                digest: "abc123".to_string(),
-                kind: "transfer".to_string(),
+                digest: "0xaabbccddee112233".to_string(),
+                direction: Some(TransactionDirection::In),
                 timestamp: None,
-                sender: None,
-                amount: None,
+                sender: Some("0x1234567890abcdef".to_string()),
+                amount: Some(1_500_000_000),
+                fee: Some(1_234_500),
+            },
+            TransactionSummary {
+                digest: "0xffeeddccbbaa9988".to_string(),
+                direction: Some(TransactionDirection::Out),
+                timestamp: None,
+                sender: Some("0x9876543210fedcba".to_string()),
+                amount: Some(2_000_000_000),
+                fee: Some(2_345_600),
             },
         ];
         let output = format_transactions(&txs);
-        assert!(output.contains("abc123"));
-        assert!(output.contains("transfer"));
+        // Direction padded to 3 chars
+        assert!(output.contains("in "));
+        assert!(output.contains("out"));
+        // Full addresses and digests shown
+        assert!(output.contains("0x1234567890abcdef"));
+        assert!(output.contains("0x9876543210fedcba"));
+        assert!(output.contains("0xaabbccddee112233"));
+        assert!(output.contains("0xffeeddccbbaa9988"));
+        // Amounts shown
+        assert!(output.contains("1.500000000"));
+        assert!(output.contains("2.000000000"));
+        // Fee only shown for outgoing
+        assert!(output.contains("0.002345600")); // out fee
+        // In fee is "-"
+        let in_line = output.lines().find(|l| l.starts_with("in ")).unwrap();
+        let out_line = output.lines().find(|l| l.starts_with("out")).unwrap();
+        assert!(in_line.contains("  -  "));
+        assert!(!out_line.contains("  -  "));
+    }
+
+    #[test]
+    fn format_transactions_no_amount() {
+        let txs = vec![
+            TransactionSummary {
+                digest: "0xshortdigest".to_string(),
+                direction: None,
+                timestamp: None,
+                sender: None,
+                amount: None,
+                fee: None,
+            },
+        ];
+        let output = format_transactions(&txs);
+        assert!(output.contains("-"));
     }
 }

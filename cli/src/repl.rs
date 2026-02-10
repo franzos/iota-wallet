@@ -57,8 +57,6 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                 )?;
                 println!();
                 println!("New wallet created in {}", wallet_path.display());
-                println!("Address: {}", w.address());
-                println!();
                 println!("IMPORTANT: Write down your seed phrase and keep it safe:");
                 println!("  {}", w.mnemonic());
                 println!();
@@ -74,8 +72,6 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                 )?;
                 println!();
                 println!("Wallet recovered!");
-                println!("Address: {}", w.address());
-                println!();
                 w
             }
             WalletAction::Quit => unreachable!(),

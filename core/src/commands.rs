@@ -161,10 +161,11 @@ impl Command {
                         .map(|tx| {
                             serde_json::json!({
                                 "digest": tx.digest,
-                                "kind": tx.kind,
+                                "direction": tx.direction.map(|d| d.to_string()),
                                 "timestamp": tx.timestamp,
                                 "sender": tx.sender,
                                 "amount": tx.amount,
+                                "fee": tx.fee,
                             })
                         })
                         .collect();
