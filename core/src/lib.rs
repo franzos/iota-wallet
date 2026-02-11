@@ -2,6 +2,7 @@ pub mod cache;
 pub mod commands;
 pub mod display;
 pub mod network;
+pub mod signer;
 pub mod wallet;
 pub mod wallet_file;
 
@@ -9,6 +10,7 @@ pub use cache::TransactionCache;
 pub use wallet::Wallet;
 pub use network::NetworkClient;
 pub use commands::Command;
+pub use signer::{Signer, SoftwareSigner};
 
 /// Reject wallet names containing path separators or traversal sequences.
 pub fn validate_wallet_name(name: &str) -> anyhow::Result<()> {

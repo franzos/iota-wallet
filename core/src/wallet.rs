@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::signer::SoftwareSigner;
 use crate::wallet_file;
 
 /// Serialized wallet state — what gets encrypted and stored on disk.
@@ -206,6 +207,10 @@ impl Wallet {
 
     pub fn private_key(&self) -> &Ed25519PrivateKey {
         &self.private_key
+    }
+
+    pub fn signer(&self) -> SoftwareSigner {
+        SoftwareSigner::new(self.private_key.clone())
     }
 
     pub fn mnemonic(&self) -> &str {

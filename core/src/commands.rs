@@ -241,7 +241,7 @@ impl Command {
             Command::Transfer { recipient, amount } => {
                 let result = network
                     .send_iota(
-                        wallet.private_key(),
+                        &wallet.signer(),
                         wallet.address(),
                         *recipient,
                         *amount,
@@ -271,7 +271,7 @@ impl Command {
             Command::SweepAll { recipient } => {
                 let (result, amount) = network
                     .sweep_all(
-                        wallet.private_key(),
+                        &wallet.signer(),
                         wallet.address(),
                         *recipient,
                     )
@@ -345,7 +345,7 @@ impl Command {
             Command::Stake { validator, amount } => {
                 let result = network
                     .stake_iota(
-                        wallet.private_key(),
+                        &wallet.signer(),
                         wallet.address(),
                         *validator,
                         *amount,
@@ -375,7 +375,7 @@ impl Command {
             Command::Unstake { staked_object_id } => {
                 let result = network
                     .unstake_iota(
-                        wallet.private_key(),
+                        &wallet.signer(),
                         wallet.address(),
                         *staked_object_id,
                     )

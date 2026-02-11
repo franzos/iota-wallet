@@ -2,8 +2,6 @@
 use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
-use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
-use iota_sdk::crypto::IotaSigner;
 use iota_sdk::graphql_client::faucet::FaucetClient;
 use iota_sdk::graphql_client::pagination::{Direction, PaginationFilter};
 use iota_sdk::graphql_client::query_types::TransactionsFilter;
@@ -16,7 +14,7 @@ use iota_sdk::types::{
 };
 
 use crate::cache::TransactionCache;
-
+use crate::signer::Signer;
 use crate::wallet::{Network, NetworkConfig};
 
 pub struct NetworkClient {
@@ -90,7 +88,7 @@ impl NetworkClient {
     async fn sign_and_execute(
         &self,
         tx: &Transaction,
-        private_key: &Ed25519PrivateKey,
+        signer: &dyn Signer,
     ) -> Result<TransferResult> {
         let dry_run = self
             .client
@@ -101,9 +99,7 @@ impl NetworkClient {
             bail!("Transaction would fail: {err}");
         }
 
-        let signature = private_key
-            .sign_transaction(tx)
-            .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {e}"))?;
+        let signature = signer.sign_transaction(tx)?;
 
         let effects = self
             .client
@@ -126,7 +122,7 @@ impl NetworkClient {
     /// Amount is in nanos (1 IOTA = 1_000_000_000 nanos).
     pub async fn send_iota(
         &self,
-        private_key: &Ed25519PrivateKey,
+        signer: &dyn Signer,
         sender: &Address,
         recipient: Address,
         amount: u64,
@@ -134,14 +130,14 @@ impl NetworkClient {
         let mut builder = TransactionBuilder::new(*sender).with_client(&self.client);
         builder.send_iota(recipient, amount);
         let tx = builder.finish().await.context("Failed to build transaction")?;
-        self.sign_and_execute(&tx, private_key).await
+        self.sign_and_execute(&tx, signer).await
     }
 
     /// Stake IOTA to a validator.
     /// Amount is in nanos (1 IOTA = 1_000_000_000 nanos).
     pub async fn stake_iota(
         &self,
-        private_key: &Ed25519PrivateKey,
+        signer: &dyn Signer,
         sender: &Address,
         validator: Address,
         amount: u64,
@@ -149,20 +145,20 @@ impl NetworkClient {
         let mut builder = TransactionBuilder::new(*sender).with_client(&self.client);
         builder.stake(amount, validator);
         let tx = builder.finish().await.context("Failed to build stake transaction")?;
-        self.sign_and_execute(&tx, private_key).await
+        self.sign_and_execute(&tx, signer).await
     }
 
     /// Unstake a previously staked IOTA object.
     pub async fn unstake_iota(
         &self,
-        private_key: &Ed25519PrivateKey,
+        signer: &dyn Signer,
         sender: &Address,
         staked_object_id: ObjectId,
     ) -> Result<TransferResult> {
         let mut builder = TransactionBuilder::new(*sender).with_client(&self.client);
         builder.unstake(staked_object_id);
         let tx = builder.finish().await.context("Failed to build unstake transaction")?;
-        self.sign_and_execute(&tx, private_key).await
+        self.sign_and_execute(&tx, signer).await
     }
 
     /// Query all StakedIota objects owned by the given address, including
@@ -513,7 +509,7 @@ impl NetworkClient {
     /// rest. No dust remains with the sender.
     pub async fn sweep_all(
         &self,
-        private_key: &Ed25519PrivateKey,
+        signer: &dyn Signer,
         sender: &Address,
         recipient: Address,
     ) -> Result<(TransferResult, u64)> {
@@ -528,7 +524,7 @@ impl NetworkClient {
         builder.transfer_objects(recipient, [UnresolvedArg::Gas]);
         let tx = builder.finish().await.context("Failed to build sweep transaction")?;
 
-        let result = self.sign_and_execute(&tx, private_key).await?;
+        let result = self.sign_and_execute(&tx, signer).await?;
         // net_gas_usage is signed: positive = gas consumed, negative = rebate.
         // Recipient gets balance minus gas consumed (or plus rebate).
         let amount = if result.net_gas_usage > 0 {

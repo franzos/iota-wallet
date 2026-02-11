@@ -14,12 +14,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use zeroize::{Zeroize, Zeroizing};
 
-use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
 use iota_sdk::types::{Address, ObjectId};
 use std::fmt;
 
 use iota_wallet_core::cache::TransactionCache;
 use iota_wallet_core::display::{format_balance, nanos_to_iota, parse_iota_amount};
+use iota_wallet_core::signer::Signer;
 use iota_wallet_core::{list_wallets, validate_wallet_name};
 use iota_wallet_core::network::{
     NetworkClient, StakeStatus, StakedIotaSummary, TransactionDirection, TransactionFilter,
@@ -41,7 +41,7 @@ struct WalletInfo {
     address: Address,
     address_string: String,
     network_config: NetworkConfig,
-    private_key: Arc<Ed25519PrivateKey>,
+    signer: Arc<dyn Signer>,
     network_client: Arc<NetworkClient>,
     is_mainnet: bool,
 }
@@ -62,7 +62,7 @@ impl WalletInfo {
             address: *wallet.address(),
             address_string: wallet.address().to_string(),
             network_config: wallet.network_config().clone(),
-            private_key: Arc::new(wallet.private_key().clone()),
+            signer: Arc::new(wallet.signer()),
             network_client: Arc::new(network_client),
             is_mainnet: wallet.is_mainnet(),
         })
@@ -731,7 +731,7 @@ impl App {
                 };
                 let sender = info.address;
                 let net = info.network_client.clone();
-                let pk = info.private_key.clone();
+                let signer = info.signer.clone();
                 self.loading = true;
                 self.error_message = None;
 
@@ -739,7 +739,7 @@ impl App {
                     async move {
                         let recipient = Address::from_hex(&recipient_str)
                             .map_err(|e| anyhow::anyhow!("Invalid recipient address: {e}"))?;
-                        let result = net.send_iota(&pk, &sender, recipient, amount).await?;
+                        let result = net.send_iota(signer.as_ref(), &sender, recipient, amount).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -835,7 +835,7 @@ impl App {
                 };
                 let sender = info.address;
                 let net = info.network_client.clone();
-                let pk = info.private_key.clone();
+                let signer = info.signer.clone();
                 self.loading = true;
                 self.error_message = None;
 
@@ -843,7 +843,7 @@ impl App {
                     async move {
                         let validator = Address::from_hex(&validator_str)
                             .map_err(|e| anyhow::anyhow!("Invalid validator address: {e}"))?;
-                        let result = net.stake_iota(&pk, &sender, validator, amount).await?;
+                        let result = net.stake_iota(signer.as_ref(), &sender, validator, amount).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -872,7 +872,7 @@ impl App {
                 };
                 let sender = info.address;
                 let net = info.network_client.clone();
-                let pk = info.private_key.clone();
+                let signer = info.signer.clone();
                 self.loading = true;
                 self.error_message = None;
                 self.success_message = None;
@@ -881,7 +881,7 @@ impl App {
                     async move {
                         let object_id = ObjectId::from_hex(&object_id_str)
                             .map_err(|e| anyhow::anyhow!("Invalid object ID: {e}"))?;
-                        let result = net.unstake_iota(&pk, &sender, object_id).await?;
+                        let result = net.unstake_iota(signer.as_ref(), &sender, object_id).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
