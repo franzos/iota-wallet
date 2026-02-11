@@ -2,12 +2,13 @@ mod chart;
 mod helpers;
 mod messages;
 mod state;
+mod styles;
 mod update;
 mod views;
 
-use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input, Space};
 use iced::theme::Palette;
-use iced::{Color, Element, Fill, Length, Task, Theme};
+use iced::{Color, Element, Fill, Font, Length, Task, Theme};
 
 use std::path::PathBuf;
 use zeroize::Zeroizing;
@@ -193,11 +194,13 @@ impl App {
                     Screen::Recover => self.view_recover(),
                     _ => unreachable!(),
                 };
-                container(content)
-                    .center_x(Fill)
-                    .center_y(Fill)
-                    .padding(20)
-                    .into()
+                container(
+                    container(content).padding(32).style(styles::card),
+                )
+                .center_x(Fill)
+                .center_y(Fill)
+                .padding(20)
+                .into()
             }
             Screen::Account | Screen::Send | Screen::Receive | Screen::History
             | Screen::Staking | Screen::Settings => self.view_main(),
@@ -217,59 +220,73 @@ impl App {
             _ => unreachable!(),
         };
 
-        let separator = container(Space::new().height(1))
-            .width(Fill)
-            .style(|_theme| container::Style {
-                border: iced::Border {
-                    color: BORDER,
-                    width: 1.0,
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
-
-        let right = column![header, separator, container(content).padding(20)]
-            .width(Fill);
+        let right = column![
+            header,
+            styles::separator(),
+            scrollable(container(content).padding(24).width(Fill)).height(Fill),
+        ]
+        .width(Fill);
 
         row![sidebar, right].into()
     }
 
     fn view_sidebar(&self) -> Element<Message> {
-        let nav_btn = |label: &'static str, target: Screen| -> Element<Message> {
-            let active = self.screen == target;
-            let btn = button(text(label).size(14)).width(Fill);
-            let btn = if active {
-                btn.style(|theme, status| {
-                    let mut style = button::primary(theme, status);
-                    style.background =
-                        Some(iced::Background::Color(ACTIVE));
-                    style
-                })
-            } else {
-                btn.style(button::text)
+        let nav_btn =
+            |icon: &'static str, label: &'static str, target: Screen| -> Element<Message> {
+                let active = self.screen == target;
+                button(
+                    row![
+                        text(icon).size(18).width(Length::Fixed(26.0)),
+                        text(label).size(14),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                )
+                .width(Fill)
+                .padding([10, 14])
+                .style(styles::nav_btn(active))
+                .on_press(Message::GoTo(target))
+                .into()
             };
-            btn.on_press(Message::GoTo(target)).into()
-        };
 
         let nav = column![
-            nav_btn("Account", Screen::Account),
-            nav_btn("Send", Screen::Send),
-            nav_btn("Receive", Screen::Receive),
-            nav_btn("History", Screen::History),
-            nav_btn("Staking", Screen::Staking),
+            nav_btn("◉", "Account", Screen::Account),
+            nav_btn("↗", "Send", Screen::Send),
+            nav_btn("↙", "Receive", Screen::Receive),
+            nav_btn("≡", "History", Screen::History),
+            nav_btn("◆", "Staking", Screen::Staking),
         ]
-        .spacing(4);
+        .spacing(2);
 
-        let settings = nav_btn("Settings", Screen::Settings);
+        let settings = nav_btn("⚙", "Settings", Screen::Settings);
 
-        let close = button(text("Close Wallet").size(14))
-            .width(Fill)
-            .on_press(Message::GoTo(Screen::WalletSelect));
+        let close = button(
+            row![
+                text("✕")
+                    .size(18)
+                    .width(Length::Fixed(26.0))
+                    .color(styles::DANGER),
+                text("Close Wallet").size(14),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        )
+        .width(Fill)
+        .padding([10, 14])
+        .style(styles::btn_ghost)
+        .on_press(Message::GoTo(Screen::WalletSelect));
 
-        let col = column![nav, Space::new().height(Fill), settings, close]
-            .spacing(10)
-            .padding(10)
-            .width(Length::Fixed(200.0));
+        let col = column![
+            nav,
+            Space::new().height(Fill),
+            styles::separator(),
+            Space::new().height(8),
+            settings,
+            close,
+        ]
+        .spacing(2)
+        .padding(12)
+        .width(Length::Fixed(210.0));
 
         container(col)
             .height(Fill)
@@ -285,18 +302,14 @@ impl App {
             return Space::new().into();
         };
 
-        // -- Main header row: balance left, address + network right --
-        let wallet_name = self
-            .selected_wallet
-            .as_deref()
-            .unwrap_or("Wallet");
-        let name_label = text(wallet_name).size(14).color(MUTED);
+        let wallet_name = self.selected_wallet.as_deref().unwrap_or("Wallet");
+        let name_label = text(wallet_name).size(13).color(MUTED);
 
         let bal = match self.balance {
             Some(b) => format_balance(b),
             None => "Loading...".into(),
         };
-        let balance_display = text(bal).size(28);
+        let balance_display = text(bal).size(30).font(styles::BOLD);
 
         let addr_short = if info.address_string.len() > 20 {
             format!(
@@ -308,32 +321,35 @@ impl App {
             info.address_string.clone()
         };
         let addr_row = row![
-            text(addr_short).size(12).color(MUTED),
-            button(text("Copy").size(11)).on_press(Message::CopyAddress),
+            text(addr_short)
+                .size(12)
+                .font(Font::MONOSPACE)
+                .color(MUTED),
+            button(text("Copy").size(11))
+                .padding([4, 10])
+                .style(styles::btn_secondary)
+                .on_press(Message::CopyAddress),
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center);
 
-        let network_badge = text(format!("{}", info.network_config.network))
-            .size(12)
-            .color(MUTED);
+        let network_label = format!("{}", info.network_config.network);
+        let network_badge =
+            container(text(network_label).size(11)).padding([3, 10]).style(styles::pill);
 
         let left = column![name_label, balance_display].spacing(2);
         let right = column![network_badge, addr_row]
-            .spacing(2)
+            .spacing(6)
             .align_x(iced::Alignment::End);
 
         let main_row = row![left, Space::new().width(Fill), right]
             .padding(15)
             .align_y(iced::Alignment::Center);
 
-        // -- Account toolbar: slim bar with SURFACE background --
+        // -- Account toolbar --
         let account_idx = info.account_index;
-
-        let label = text(format!("Account {wallet_name} #{account_idx}"))
-            .size(12);
-
-        let divider = text("|").size(12).color(BORDER);
+        let label = text(format!("Account {wallet_name} #{account_idx}")).size(12);
+        let divider = text("·").size(12).color(MUTED);
 
         let go_label = text("Jump to:").size(11).color(MUTED);
         let go_input = text_input("#", &self.account_input)
@@ -341,9 +357,12 @@ impl App {
             .on_submit(Message::AccountGoPressed)
             .size(11)
             .width(Length::Fixed(48.0));
-        let go_btn = button(text("Go").size(11)).on_press(Message::AccountGoPressed);
+        let go_btn = button(text("Go").size(11))
+            .padding([4, 10])
+            .style(styles::btn_secondary)
+            .on_press(Message::AccountGoPressed);
 
-        let divider2 = text("|").size(12).color(BORDER);
+        let divider2 = text("·").size(12).color(MUTED);
 
         let select_label = text("Select").size(11).color(MUTED);
         let options: Vec<AccountOption> = info
@@ -359,11 +378,7 @@ impl App {
         .width(Length::Fixed(72.0));
 
         let toolbar = row![
-            label,
-            divider,
-            go_label, go_input, go_btn,
-            divider2,
-            select_label, dropdown,
+            label, divider, go_label, go_input, go_btn, divider2, select_label, dropdown,
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center);

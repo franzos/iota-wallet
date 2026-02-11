@@ -1,6 +1,6 @@
 use crate::messages::Message;
 use crate::state::Screen;
-use crate::App;
+use crate::{styles, App, MUTED};
 use iced::widget::{button, column, row, text, text_input, Space};
 use iced::Element;
 
@@ -23,29 +23,34 @@ impl App {
             .on_submit(Message::CreateWallet)
             .secure(true);
 
-        let mut create = button(text("Create").size(14)).style(button::primary);
+        let mut create = button(text("Create").size(14))
+            .padding([10, 20])
+            .style(styles::btn_primary);
         if self.loading == 0 && self.validate_create_form().is_none() {
             create = create.on_press(Message::CreateWallet);
         }
-        let back = button(text("Back").size(14)).on_press(Message::GoTo(Screen::WalletSelect));
+        let back = button(text("Back").size(14))
+            .padding([10, 20])
+            .style(styles::btn_secondary)
+            .on_press(Message::GoTo(Screen::WalletSelect));
 
         let mut col = column![
             title,
-            Space::new().height(10),
+            Space::new().height(8),
             name,
             pw,
             pw2,
-            Space::new().height(10),
+            Space::new().height(8),
             row![back, create].spacing(10),
         ]
         .spacing(5)
         .max_width(400);
 
         if self.loading > 0 {
-            col = col.push(text("Creating wallet...").size(14));
+            col = col.push(text("Creating wallet...").size(13).color(MUTED));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
+            col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
         }
 
         col.into()
@@ -57,36 +62,39 @@ impl App {
             "Save these 24 words in a safe place. You will need them to recover your wallet.",
         )
         .size(14)
-        .color([1.0, 0.757, 0.027]);
+        .color(styles::WARNING);
 
-        let words: Vec<&str> = mnemonic.split_whitespace().collect();
+        let words: Vec<String> = mnemonic.split_whitespace().map(String::from).collect();
 
-        // Two-column layout: 1-12 left, 13-24 right
         let mut left = column![].spacing(4);
         let mut right = column![].spacing(4);
         for (i, word) in words.iter().enumerate() {
-            let label = text(format!("{:>2}. {}", i + 1, word)).size(14);
+            let num = text(format!("{:>2}.", i + 1)).size(14).color(MUTED);
+            let w = text(word.clone()).size(14).font(styles::BOLD);
+            let label = row![num, w].spacing(6);
             if i < 12 {
                 left = left.push(label);
             } else {
                 right = right.push(label);
             }
         }
-        let word_grid = row![left, Space::new().width(30), right];
+        let word_grid = row![left, Space::new().width(40), right];
 
         let confirm = button(text("I've saved my mnemonic").size(14))
+            .padding([10, 20])
+            .style(styles::btn_primary)
             .on_press(Message::MnemonicConfirmed);
 
         column![
             title,
-            Space::new().height(10),
+            Space::new().height(8),
             warning,
-            Space::new().height(10),
+            Space::new().height(12),
             word_grid,
             Space::new().height(20),
             confirm,
         ]
-        .spacing(5)
+        .spacing(4)
         .max_width(500)
         .into()
     }

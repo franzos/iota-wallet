@@ -1,7 +1,7 @@
 use crate::messages::Message;
-use crate::{App, BORDER, SURFACE};
-use iced::widget::{button, column, container, text, Space};
-use iced::{Element, Fill};
+use crate::{styles, App, BG, BORDER, MUTED};
+use iced::widget::{button, column, container, row, text, Space};
+use iced::{Element, Fill, Font};
 
 impl App {
     pub(crate) fn view_receive(&self) -> Element<Message> {
@@ -12,35 +12,47 @@ impl App {
         let title = text("Receive IOTA").size(24);
 
         let addr_container = container(
-            text(&info.address_string).size(14),
+            text(&info.address_string).size(14).font(Font::MONOSPACE),
         )
         .padding(15)
         .width(Fill)
         .style(|_theme| container::Style {
-            background: Some(iced::Background::Color(SURFACE)),
+            background: Some(iced::Background::Color(BG)),
             border: iced::Border {
                 color: BORDER,
                 width: 1.0,
-                radius: 4.0.into(),
+                radius: 8.0.into(),
             },
             ..Default::default()
         });
 
-        let copy = button(text("Copy Address").size(14)).on_press(Message::CopyAddress);
+        let copy = button(text("Copy Address").size(14))
+            .padding([10, 20])
+            .style(styles::btn_primary)
+            .on_press(Message::CopyAddress);
 
-        let mut col = column![
-            title,
-            Space::new().height(10),
-            text("Your address").size(12),
+        let card_content = column![
+            text("Your Address").size(12).color(MUTED),
             addr_container,
-            Space::new().height(10),
+            Space::new().height(8),
             copy,
         ]
-        .spacing(5)
-        .max_width(600);
+        .spacing(8);
+
+        let header = row![title, Space::new().width(Fill)]
+            .align_y(iced::Alignment::Center);
+
+        let mut col = column![
+            header,
+            container(card_content)
+                .padding(24)
+                .width(Fill)
+                .style(styles::card),
+        ]
+        .spacing(16);
 
         if let Some(msg) = &self.status_message {
-            col = col.push(text(msg.as_str()).size(12).color([0.059, 0.757, 0.718]));
+            col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
         }
 
         col.into()

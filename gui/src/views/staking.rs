@@ -1,7 +1,7 @@
 use crate::messages::Message;
-use crate::{App, BORDER, MUTED};
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
-use iced::{Color, Element, Fill, Length};
+use crate::{styles, App, MUTED};
+use iced::widget::{button, column, container, row, text, text_input, Space};
+use iced::{Element, Fill, Length};
 use iota_wallet_core::display::format_balance;
 use iota_wallet_core::network::StakeStatus;
 
@@ -9,44 +9,40 @@ impl App {
     pub(crate) fn view_staking(&self) -> Element<Message> {
         let title = text("Staking").size(24);
 
-        let mut col = column![
-            title,
-            Space::new().height(10),
+        let header = row![title, Space::new().width(Fill)]
+            .align_y(iced::Alignment::Center);
+
+        let mut col = column![header].spacing(16);
+
+        // -- Active stakes card --
+        let mut stakes_content = column![
+            row![
+                text("Active Stakes").size(16),
+                Space::new().width(Fill),
+                button(text("Refresh").size(13))
+                    .padding([8, 16])
+                    .style(styles::btn_secondary)
+                    .on_press(Message::RefreshStakes),
+            ]
+            .align_y(iced::Alignment::Center),
         ]
-        .spacing(5);
-
-        // -- Active stakes --
-        col = col.push(text("Active Stakes").size(18));
-
-        let refresh = button(text("Refresh").size(14)).on_press(Message::RefreshStakes);
-        col = col.push(refresh);
+        .spacing(12);
 
         if self.loading > 0 && self.stakes.is_empty() {
-            col = col.push(text("Loading...").size(14));
+            stakes_content = stakes_content.push(text("Loading...").size(14).color(MUTED));
         } else if self.stakes.is_empty() {
-            col = col.push(text("No active stakes.").size(14));
+            stakes_content = stakes_content.push(text("No active stakes.").size(14).color(MUTED));
         } else {
             let header = row![
-                text("Principal").size(11).width(Length::Fixed(110.0)),
-                text("Reward").size(11).width(Length::Fixed(110.0)),
-                text("Epoch").size(11).width(Length::Fixed(60.0)),
-                text("Status").size(11).width(Length::Fixed(70.0)),
+                text("Principal").size(11).color(MUTED).width(Length::Fixed(110.0)),
+                text("Reward").size(11).color(MUTED).width(Length::Fixed(110.0)),
+                text("Epoch").size(11).color(MUTED).width(Length::Fixed(60.0)),
+                text("Status").size(11).color(MUTED).width(Length::Fixed(70.0)),
                 text("").size(11),
             ]
             .spacing(8);
-            col = col.push(header);
-
-            let separator = container(Space::new().height(1))
-                .width(Fill)
-                .style(|_theme| container::Style {
-                    border: iced::Border {
-                        color: BORDER,
-                        width: 1.0,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                });
-            col = col.push(separator);
+            stakes_content = stakes_content.push(header);
+            stakes_content = stakes_content.push(styles::separator());
 
             let mut total_principal: u64 = 0;
             let mut total_reward: u64 = 0;
@@ -64,8 +60,8 @@ impl App {
                 };
 
                 let status_color = match stake.status {
-                    StakeStatus::Active => Color::from_rgb(0.059, 0.757, 0.718),
-                    StakeStatus::Pending => Color::from_rgb(1.0, 0.757, 0.027),
+                    StakeStatus::Active => styles::ACCENT,
+                    StakeStatus::Pending => styles::WARNING,
                     StakeStatus::Unstaked => MUTED,
                 };
 
@@ -79,7 +75,9 @@ impl App {
                 .align_y(iced::Alignment::Center);
 
                 if stake.status != StakeStatus::Unstaked {
-                    let mut unstake_btn = button(text("Unstake").size(11));
+                    let mut unstake_btn = button(text("Unstake").size(11))
+                        .padding([4, 10])
+                        .style(styles::btn_danger);
                     if self.loading == 0 {
                         unstake_btn = unstake_btn
                             .on_press(Message::ConfirmUnstake(stake.object_id.to_string()));
@@ -89,54 +87,73 @@ impl App {
 
                 stakes_col = stakes_col.push(stake_row);
             }
-            col = col.push(stakes_col);
+            stakes_content = stakes_content.push(stakes_col);
 
-            col = col.push(Space::new().height(5));
-            col = col.push(
+            stakes_content = stakes_content.push(styles::separator());
+            stakes_content = stakes_content.push(
                 text(format!(
-                    "Total: {}  rewards: {}",
+                    "Total: {}  ·  Rewards: {}",
                     format_balance(total_principal),
                     format_balance(total_reward),
                 ))
-                .size(13),
+                .size(13)
+                .font(styles::BOLD),
             );
         }
 
-        // -- New stake form --
-        col = col.push(Space::new().height(20));
-        col = col.push(text("New Stake").size(18));
+        col = col.push(
+            container(stakes_content)
+                .padding(20)
+                .width(Fill)
+                .style(styles::card),
+        );
 
+        // -- New stake form card --
         let validator = text_input("Validator address (0x...)", &self.validator_address)
             .on_input(Message::ValidatorAddressChanged);
         let amount = text_input("Amount (IOTA)", &self.stake_amount)
             .on_input(Message::StakeAmountChanged)
             .on_submit(Message::ConfirmStake);
 
-        let mut stake_btn = button(text("Stake").size(14)).style(button::primary);
+        let mut stake_btn = button(text("Stake").size(14))
+            .padding([10, 24])
+            .style(styles::btn_primary);
         if self.loading == 0 && !self.validator_address.is_empty() && !self.stake_amount.is_empty()
         {
             stake_btn = stake_btn.on_press(Message::ConfirmStake);
         }
 
-        col = col.push(text("Validator").size(12));
-        col = col.push(validator);
-        col = col.push(Space::new().height(3));
-        col = col.push(text("Amount").size(12));
-        col = col.push(amount);
-        col = col.push(Space::new().height(5));
-        col = col.push(stake_btn);
+        let form_content = column![
+            text("New Stake").size(16),
+            Space::new().height(4),
+            text("Validator").size(12).color(MUTED),
+            validator,
+            Space::new().height(4),
+            text("Amount").size(12).color(MUTED),
+            amount,
+            Space::new().height(8),
+            stake_btn,
+        ]
+        .spacing(4);
+
+        col = col.push(
+            container(form_content)
+                .padding(24)
+                .width(Fill)
+                .style(styles::card),
+        );
 
         // Status messages
         if self.loading > 0 && !self.stakes.is_empty() {
-            col = col.push(text("Processing...").size(14));
+            col = col.push(text("Processing...").size(13).color(MUTED));
         }
         if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(14).color([0.059, 0.757, 0.718]));
+            col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
         }
         if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
+            col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
         }
 
-        scrollable(col).into()
+        col.into()
     }
 }

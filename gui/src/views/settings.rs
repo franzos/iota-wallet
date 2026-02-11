@@ -1,7 +1,7 @@
 use crate::messages::Message;
-use crate::{App, ACTIVE, MUTED};
-use iced::widget::{button, column, row, text, text_input, Space};
-use iced::Element;
+use crate::{styles, App, MUTED};
+use iced::widget::{button, column, container, row, text, text_input, Space};
+use iced::{Element, Fill};
 use iota_wallet_core::wallet::Network;
 
 impl App {
@@ -16,18 +16,11 @@ impl App {
 
         let net_btn = |label: &'static str, network: Network| -> Element<Message> {
             let active = *active_network == network;
-            let btn = button(text(label).size(14));
-            let btn = if active {
-                btn.style(|theme, status| {
-                    let mut style = button::primary(theme, status);
-                    style.background =
-                        Some(iced::Background::Color(ACTIVE));
-                    style
-                })
-            } else {
-                btn.style(button::text)
-            };
-            btn.on_press(Message::NetworkChanged(network)).into()
+            button(text(label).size(13))
+                .padding([8, 16])
+                .style(styles::toggle_btn(active))
+                .on_press(Message::NetworkChanged(network))
+                .into()
         };
 
         let network_row = row![
@@ -37,28 +30,35 @@ impl App {
         ]
         .spacing(8);
 
-        let mut col = column![
-            title,
-            Space::new().height(15),
+        let mut network_content = column![
             text("Network").size(16),
-            Space::new().height(5),
+            Space::new().height(4),
             network_row,
         ]
-        .spacing(5)
-        .max_width(500);
+        .spacing(4);
 
         if self.wallet_info.is_some() {
-            col = col.push(
+            network_content = network_content.push(
                 text("Changing network applies to the current session only.")
                     .size(12)
                     .color(MUTED),
             );
+        }
 
-            // -- Change password --
-            col = col.push(Space::new().height(20));
-            col = col.push(text("Change Password").size(16));
-            col = col.push(Space::new().height(5));
+        let header = row![title, Space::new().width(Fill)]
+            .align_y(iced::Alignment::Center);
 
+        let mut col = column![
+            header,
+            container(network_content)
+                .padding(24)
+                .max_width(500)
+                .style(styles::card),
+        ]
+        .spacing(16);
+
+        if self.wallet_info.is_some() {
+            // Change password card
             let old_pw = text_input("Current password", &self.settings_old_password)
                 .on_input(Message::SettingsOldPasswordChanged)
                 .secure(true);
@@ -74,25 +74,39 @@ impl App {
                 && !self.settings_old_password.is_empty()
                 && !self.settings_new_password.is_empty()
                 && *self.settings_new_password == *self.settings_new_password_confirm;
-            let mut change_btn = button(text("Change Password").size(14));
+            let mut change_btn = button(text("Change Password").size(14))
+                .padding([10, 24])
+                .style(styles::btn_primary);
             if can_submit {
                 change_btn = change_btn.on_press(Message::ChangePassword);
             }
 
-            col = col.push(old_pw);
-            col = col.push(new_pw);
-            col = col.push(new_pw2);
-            col = col.push(Space::new().height(5));
-            col = col.push(change_btn);
+            let pw_content = column![
+                text("Change Password").size(16),
+                Space::new().height(4),
+                old_pw,
+                new_pw,
+                new_pw2,
+                Space::new().height(8),
+                change_btn,
+            ]
+            .spacing(4);
+
+            col = col.push(
+                container(pw_content)
+                    .padding(24)
+                    .max_width(500)
+                    .style(styles::card),
+            );
 
             if self.loading > 0 {
-                col = col.push(text("Changing password...").size(14));
+                col = col.push(text("Changing password...").size(13).color(MUTED));
             }
             if let Some(msg) = &self.success_message {
-                col = col.push(text(msg.as_str()).size(14).color([0.059, 0.757, 0.718]));
+                col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
             }
             if let Some(err) = &self.error_message {
-                col = col.push(text(err.as_str()).size(14).color([0.906, 0.192, 0.192]));
+                col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
             }
         }
 
