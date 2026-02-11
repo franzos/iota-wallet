@@ -109,8 +109,23 @@ impl App {
         );
 
         // -- New stake form card --
-        let validator = text_input("Validator address (0x...)", &self.validator_address)
+        let validator = text_input("Validator address or .iota name", &self.validator_address)
             .on_input(Message::ValidatorAddressChanged);
+
+        // Show resolved address or error below the input
+        let resolved_hint: Option<Element<Message>> = match &self.resolved_validator {
+            Some(Ok(addr)) => Some(
+                text(format!("Resolved: {addr}"))
+                    .size(11)
+                    .color(styles::ACCENT)
+                    .into(),
+            ),
+            Some(Err(e)) => Some(
+                text(e.as_str()).size(11).color(styles::DANGER).into(),
+            ),
+            None => None,
+        };
+
         let amount = text_input("Amount (IOTA)", &self.stake_amount)
             .on_input(Message::StakeAmountChanged)
             .on_submit(Message::ConfirmStake);
@@ -123,18 +138,22 @@ impl App {
             stake_btn = stake_btn.on_press(Message::ConfirmStake);
         }
 
-        let form_content = column![
+        let mut form_content = column![
             text("New Stake").size(16),
             Space::new().height(4),
             text("Validator").size(12).color(MUTED),
             validator,
-            Space::new().height(4),
-            text("Amount").size(12).color(MUTED),
-            amount,
-            Space::new().height(8),
-            stake_btn,
         ]
         .spacing(4);
+        if let Some(hint) = resolved_hint {
+            form_content = form_content.push(hint);
+        }
+        form_content = form_content
+            .push(Space::new().height(4))
+            .push(text("Amount").size(12).color(MUTED))
+            .push(amount)
+            .push(Space::new().height(8))
+            .push(stake_btn);
 
         col = col.push(
             container(form_content)

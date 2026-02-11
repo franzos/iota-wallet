@@ -200,7 +200,14 @@ async fn run_oneshot(cli: &Cli, cmd_str: &str) -> Result<()> {
         return Ok(());
     }
 
-    let output = command.execute(&wallet, &service, cli.json, cli.insecure).await?;
+    // Resolve .iota names before execution
+    let resolved = if let Some(r) = command.recipient() {
+        Some(service.resolve_recipient(r).await?)
+    } else {
+        None
+    };
+
+    let output = command.execute(&wallet, &service, cli.json, cli.insecure, resolved.as_ref()).await?;
     if !output.is_empty() {
         println!("{output}");
     }

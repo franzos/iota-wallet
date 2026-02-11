@@ -14,6 +14,7 @@ use iota_sdk::types::{
 };
 
 use crate::cache::TransactionCache;
+use crate::recipient::{Recipient, ResolvedRecipient};
 use crate::signer::Signer;
 use crate::wallet::{Network, NetworkConfig};
 
@@ -639,6 +640,78 @@ impl NetworkClient {
         }
 
         Ok(balances)
+    }
+
+    /// Resolve an IOTA Name (e.g. `franz.iota`) to an address via GraphQL.
+    pub async fn resolve_iota_name(&self, name: &str) -> Result<Address> {
+        let query = serde_json::json!({
+            "query": r#"query ($name: String!) {
+                resolveIotaNamesAddress(name: $name) {
+                    address
+                }
+            }"#,
+            "variables": { "name": name }
+        });
+
+        let response = self
+            .client
+            .run_query_from_json(query.as_object().unwrap().clone())
+            .await
+            .context("Failed to resolve IOTA name")?;
+
+        let data = response.data.context("No data in name resolution response")?;
+        let addr_str = data
+            .get("resolveIotaNamesAddress")
+            .and_then(|v| v.get("address"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Could not resolve '{name}' — name not found"))?;
+
+        Address::from_hex(addr_str)
+            .map_err(|e| anyhow::anyhow!("Invalid address in name resolution: {e}"))
+    }
+
+    /// Look up the default IOTA Name for an address (reverse resolution).
+    pub async fn default_iota_name(&self, address: &Address) -> Result<Option<String>> {
+        let query = serde_json::json!({
+            "query": r#"query ($addr: IotaAddress!) {
+                address(address: $addr) {
+                    iotaNamesDefaultName(format: DOT)
+                }
+            }"#,
+            "variables": { "addr": address.to_string() }
+        });
+
+        let response = self
+            .client
+            .run_query_from_json(query.as_object().unwrap().clone())
+            .await
+            .context("Failed to query default IOTA name")?;
+
+        let data = response.data.context("No data in default name response")?;
+        let name = data
+            .get("address")
+            .and_then(|v| v.get("iotaNamesDefaultName"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        Ok(name)
+    }
+
+    /// Resolve a `Recipient` to a concrete address + optional display name.
+    pub async fn resolve_recipient(&self, recipient: &Recipient) -> Result<ResolvedRecipient> {
+        match recipient {
+            Recipient::Address(addr) => Ok(ResolvedRecipient {
+                address: *addr,
+                name: None,
+            }),
+            Recipient::Name(name) => {
+                let address = self.resolve_iota_name(name).await?;
+                Ok(ResolvedRecipient {
+                    address,
+                    name: Some(name.clone()),
+                })
+            }
+        }
     }
 
     /// Query network status: current epoch, gas price, and node URL.

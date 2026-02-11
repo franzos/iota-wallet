@@ -43,6 +43,7 @@ pub(crate) enum Message {
     TransactionsLoaded(Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), String>),
 
     // Send
+    RecipientResolved(Result<String, String>),
     ConfirmSend,
     SendCompleted(Result<String, String>),
 
@@ -54,6 +55,7 @@ pub(crate) enum Message {
     HistoryPrevPage,
 
     // Staking
+    ValidatorResolved(Result<String, String>),
     ValidatorAddressChanged(String),
     StakeAmountChanged(String),
     ConfirmStake,

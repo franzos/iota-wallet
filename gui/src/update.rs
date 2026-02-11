@@ -2,7 +2,7 @@ use crate::messages::Message;
 use crate::state::{Screen, WalletInfo};
 use crate::App;
 use iced::Task;
-use iota_wallet_core::{Address, ObjectId};
+use iota_wallet_core::{ObjectId, Recipient};
 use iota_wallet_core::cache::TransactionCache;
 use iota_wallet_core::display::parse_iota_amount;
 use iota_wallet_core::network::{
@@ -64,7 +64,25 @@ impl App {
                 Task::none()
             }
             Message::RecipientChanged(v) => {
-                self.recipient = v;
+                self.recipient = v.clone();
+                self.resolved_recipient = None;
+                // Trigger async resolution for .iota names
+                if v.ends_with(".iota") && v.len() > 5 {
+                    if let Some(info) = &self.wallet_info {
+                        let service = info.service.clone();
+                        let name = v;
+                        return Task::perform(
+                            async move {
+                                let r = Recipient::Name(name.to_lowercase());
+                                let resolved = service.resolve_recipient(&r).await?;
+                                Ok(resolved.address.to_string())
+                            },
+                            |r: Result<String, anyhow::Error>| {
+                                Message::RecipientResolved(r.map_err(|e| e.to_string()))
+                            },
+                        );
+                    }
+                }
                 Task::none()
             }
             Message::AmountChanged(v) => {
@@ -298,15 +316,27 @@ impl App {
             }
 
             // -- Send --
+            Message::RecipientResolved(result) => {
+                self.resolved_recipient = Some(result);
+                Task::none()
+            }
+
             Message::ConfirmSend => {
                 let Some(info) = &self.wallet_info else {
                     return Task::none();
                 };
                 let recipient_str = self.recipient.trim().to_string();
                 if recipient_str.is_empty() {
-                    self.error_message = Some("Recipient address is required".into());
+                    self.error_message = Some("Recipient is required".into());
                     return Task::none();
                 }
+                let recipient = match Recipient::parse(&recipient_str) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        self.error_message = Some(e);
+                        return Task::none();
+                    }
+                };
                 let amount = match parse_iota_amount(&self.amount) {
                     Ok(0) => {
                         self.error_message = Some("Amount must be greater than 0".into());
@@ -324,9 +354,8 @@ impl App {
 
                 Task::perform(
                     async move {
-                        let recipient = Address::from_hex(&recipient_str)
-                            .map_err(|e| anyhow::anyhow!("Invalid recipient address: {e}"))?;
-                        let result = service.send(recipient, amount).await?;
+                        let resolved = service.resolve_recipient(&recipient).await?;
+                        let result = service.send(resolved.address, amount).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -390,8 +419,31 @@ impl App {
             }
 
             // -- Staking --
+            Message::ValidatorResolved(result) => {
+                self.resolved_validator = Some(result);
+                Task::none()
+            }
+
             Message::ValidatorAddressChanged(v) => {
-                self.validator_address = v;
+                self.validator_address = v.clone();
+                self.resolved_validator = None;
+                // Trigger async resolution for .iota names
+                if v.ends_with(".iota") && v.len() > 5 {
+                    if let Some(info) = &self.wallet_info {
+                        let service = info.service.clone();
+                        let name = v;
+                        return Task::perform(
+                            async move {
+                                let r = Recipient::Name(name.to_lowercase());
+                                let resolved = service.resolve_recipient(&r).await?;
+                                Ok(resolved.address.to_string())
+                            },
+                            |r: Result<String, anyhow::Error>| {
+                                Message::ValidatorResolved(r.map_err(|e| e.to_string()))
+                            },
+                        );
+                    }
+                }
                 Task::none()
             }
             Message::StakeAmountChanged(v) => {
@@ -406,9 +458,16 @@ impl App {
                 };
                 let validator_str = self.validator_address.trim().to_string();
                 if validator_str.is_empty() {
-                    self.error_message = Some("Validator address is required".into());
+                    self.error_message = Some("Validator is required".into());
                     return Task::none();
                 }
+                let validator = match Recipient::parse(&validator_str) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        self.error_message = Some(e);
+                        return Task::none();
+                    }
+                };
                 let amount = match parse_iota_amount(&self.stake_amount) {
                     Ok(0) => {
                         self.error_message = Some("Amount must be greater than 0".into());
@@ -426,9 +485,8 @@ impl App {
 
                 Task::perform(
                     async move {
-                        let validator = Address::from_hex(&validator_str)
-                            .map_err(|e| anyhow::anyhow!("Invalid validator address: {e}"))?;
-                        let result = service.stake(validator, amount).await?;
+                        let resolved = service.resolve_recipient(&validator).await?;
+                        let result = service.stake(resolved.address, amount).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -649,6 +707,8 @@ impl App {
         self.mnemonic_input.zeroize();
         self.recipient.clear();
         self.amount.clear();
+        self.resolved_recipient = None;
+        self.resolved_validator = None;
         self.error_message = None;
         self.success_message = None;
         self.status_message = None;

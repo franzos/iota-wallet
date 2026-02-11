@@ -71,6 +71,10 @@ struct App {
     history_page: u32,
     history_total: u32,
 
+    // Name resolution
+    resolved_recipient: Option<Result<String, String>>,
+    resolved_validator: Option<Result<String, String>>,
+
     // Staking
     stakes: Vec<StakedIotaSummary>,
     validator_address: String,
@@ -138,6 +142,8 @@ impl App {
             expanded_tx: None,
             history_page: 0,
             history_total: 0,
+            resolved_recipient: None,
+            resolved_validator: None,
             stakes: Vec::new(),
             validator_address: String::new(),
             stake_amount: String::new(),

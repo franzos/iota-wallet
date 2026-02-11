@@ -205,7 +205,20 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                         }
                     }
                     Ok(cmd) => {
-                        if let Some(prompt_msg) = cmd.confirmation_prompt() {
+                        // Resolve .iota names before confirmation/execution
+                        let resolved = if let Some(r) = cmd.recipient() {
+                            match service.resolve_recipient(r).await {
+                                Ok(res) => Some(res),
+                                Err(e) => {
+                                    eprintln!("Error resolving name: {e}");
+                                    continue;
+                                }
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some(prompt_msg) = cmd.confirmation_prompt(resolved.as_ref()) {
                             print!("{prompt_msg} [y/N]: ");
                             use std::io::Write;
                             std::io::stdout().flush().ok();
@@ -219,7 +232,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                                 continue;
                             }
                         }
-                        match cmd.execute(&wallet, &service, false, cli.insecure).await {
+                        match cmd.execute(&wallet, &service, false, cli.insecure, resolved.as_ref()).await {
                             Ok(output) => {
                                 if !output.is_empty() {
                                     println!("{output}");

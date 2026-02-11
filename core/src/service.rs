@@ -7,6 +7,7 @@ use crate::network::{
     NetworkClient, NetworkStatus, StakedIotaSummary, TokenBalance, TransactionDetailsSummary,
     TransferResult,
 };
+use crate::recipient::{Recipient, ResolvedRecipient};
 use crate::signer::Signer;
 
 pub struct WalletService {
@@ -90,5 +91,13 @@ impl WalletService {
 
     pub async fn status(&self) -> Result<NetworkStatus> {
         self.network.status().await
+    }
+
+    pub async fn resolve_recipient(&self, recipient: &Recipient) -> Result<ResolvedRecipient> {
+        self.network.resolve_recipient(recipient).await
+    }
+
+    pub async fn default_iota_name(&self, address: &Address) -> Result<Option<String>> {
+        self.network.default_iota_name(address).await
     }
 }

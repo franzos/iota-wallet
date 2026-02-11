@@ -1,10 +1,11 @@
 /// Command definitions and parsing for the wallet REPL and one-shot mode.
 use anyhow::{Result, bail};
-use iota_sdk::types::{Address, Digest, ObjectId};
+use iota_sdk::types::{Digest, ObjectId};
 
 use crate::cache::TransactionCache;
 use crate::display;
 use crate::network::{NetworkClient, TransactionFilter};
+use crate::recipient::{Recipient, ResolvedRecipient};
 use crate::service::WalletService;
 use crate::wallet::Wallet;
 
@@ -14,18 +15,18 @@ pub enum Command {
     Balance,
     /// Show wallet address
     Address,
-    /// Transfer IOTA to another address: transfer <address> <amount>
-    Transfer { recipient: Address, amount: u64 },
-    /// Sweep entire balance minus gas to an address: sweep_all <address>
-    SweepAll { recipient: Address },
+    /// Transfer IOTA to a recipient: transfer <address|name.iota> <amount>
+    Transfer { recipient: Recipient, amount: u64 },
+    /// Sweep entire balance minus gas: sweep_all <address|name.iota>
+    SweepAll { recipient: Recipient },
     /// Show transaction history: show_transfers [in|out|all]
     ShowTransfers { filter: TransactionFilter },
     /// Look up a transaction by digest: show_transfer <digest>
     ShowTransfer { digest: Digest },
     /// Request faucet tokens (testnet/devnet only)
     Faucet,
-    /// Stake IOTA to a validator: stake <validator_address> <amount>
-    Stake { validator: Address, amount: u64 },
+    /// Stake IOTA to a validator: stake <validator_address|name.iota> <amount>
+    Stake { validator: Recipient, amount: u64 },
     /// Unstake a staked IOTA object: unstake <staked_object_id>
     Unstake { staked_object_id: ObjectId },
     /// Show all active stakes
@@ -67,17 +68,17 @@ impl Command {
             "transfer" | "send" => {
                 let addr_str = arg1.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing recipient address. Usage: transfer <address> <amount>"
+                        "Missing recipient. Usage: transfer <address|name.iota> <amount>"
                     )
                 })?;
                 let amount_str = arg2.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing amount. Usage: transfer <address> <amount>"
+                        "Missing amount. Usage: transfer <address|name.iota> <amount>"
                     )
                 })?;
 
-                let recipient = Address::from_hex(addr_str).map_err(|e| {
-                    anyhow::anyhow!("Invalid recipient address '{addr_str}': {e}")
+                let recipient = Recipient::parse(addr_str).map_err(|e| {
+                    anyhow::anyhow!("{e}")
                 })?;
 
                 let amount = display::parse_iota_amount(amount_str).map_err(|e| {
@@ -94,12 +95,12 @@ impl Command {
             "sweep_all" | "sweep" => {
                 let addr_str = arg1.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing recipient address. Usage: sweep_all <address>"
+                        "Missing recipient. Usage: sweep_all <address|name.iota>"
                     )
                 })?;
 
-                let recipient = Address::from_hex(addr_str).map_err(|e| {
-                    anyhow::anyhow!("Invalid recipient address '{addr_str}': {e}")
+                let recipient = Recipient::parse(addr_str).map_err(|e| {
+                    anyhow::anyhow!("{e}")
                 })?;
 
                 Ok(Command::SweepAll { recipient })
@@ -127,17 +128,17 @@ impl Command {
             "stake" => {
                 let addr_str = arg1.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing validator address. Usage: stake <validator_address> <amount>\n  Find validators at https://explorer.iota.org/validators"
+                        "Missing validator. Usage: stake <validator_address|name.iota> <amount>\n  Find validators at https://explorer.iota.org/validators"
                     )
                 })?;
                 let amount_str = arg2.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing amount. Usage: stake <validator_address> <amount>"
+                        "Missing amount. Usage: stake <validator_address|name.iota> <amount>"
                     )
                 })?;
 
-                let validator = Address::from_hex(addr_str).map_err(|e| {
-                    anyhow::anyhow!("Invalid validator address '{addr_str}': {e}")
+                let validator = Recipient::parse(addr_str).map_err(|e| {
+                    anyhow::anyhow!("{e}")
                 })?;
 
                 let amount = display::parse_iota_amount(amount_str).map_err(|e| {
@@ -199,22 +200,43 @@ impl Command {
         }
     }
 
+    /// Return a reference to the recipient/validator if this command has one.
+    pub fn recipient(&self) -> Option<&Recipient> {
+        match self {
+            Command::Transfer { recipient, .. } => Some(recipient),
+            Command::SweepAll { recipient } => Some(recipient),
+            Command::Stake { validator, .. } => Some(validator),
+            _ => None,
+        }
+    }
+
     /// Returns a confirmation prompt if this command should ask before executing.
-    pub fn confirmation_prompt(&self) -> Option<String> {
+    /// When a `ResolvedRecipient` is provided, shows the resolved name + address.
+    pub fn confirmation_prompt(
+        &self,
+        resolved: Option<&ResolvedRecipient>,
+    ) -> Option<String> {
+        let display_recipient = |r: &Recipient| -> String {
+            match resolved {
+                Some(res) => res.to_string(),
+                None => r.to_string(),
+            }
+        };
+
         match self {
             Command::Transfer { recipient, amount } => Some(format!(
                 "Send {} to {}?",
                 display::format_balance(*amount),
-                recipient,
+                display_recipient(recipient),
             )),
             Command::SweepAll { recipient } => Some(format!(
                 "Sweep entire balance to {}?",
-                recipient,
+                display_recipient(recipient),
             )),
             Command::Stake { validator, amount } => Some(format!(
                 "Stake {} to validator {}?",
                 display::format_balance(*amount),
-                validator,
+                display_recipient(validator),
             )),
             Command::Seed => Some("This will display sensitive data. Continue?".to_string()),
             Command::Password => Some("Change wallet password?".to_string()),
@@ -223,12 +245,15 @@ impl Command {
     }
 
     /// Execute a command and return the output string.
+    /// When `resolved` is provided (pre-resolved name), uses that address directly.
+    /// Otherwise resolves inline if needed.
     pub async fn execute(
         &self,
         wallet: &Wallet,
         service: &WalletService,
         json_output: bool,
         allow_insecure: bool,
+        resolved: Option<&ResolvedRecipient>,
     ) -> Result<String> {
         match self {
             Command::Balance => {
@@ -250,7 +275,11 @@ impl Command {
             }
 
             Command::Transfer { recipient, amount } => {
-                let result = service.send(*recipient, *amount).await?;
+                let res = match resolved {
+                    Some(r) => r.clone(),
+                    None => service.resolve_recipient(recipient).await?,
+                };
+                let result = service.send(res.address, *amount).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -258,7 +287,8 @@ impl Command {
                         "status": result.status,
                         "amount_nanos": amount,
                         "amount_iota": display::nanos_to_iota(*amount),
-                        "recipient": recipient.to_string(),
+                        "recipient": res.address.to_string(),
+                        "name": res.name,
                     })
                     .to_string())
                 } else {
@@ -267,13 +297,17 @@ impl Command {
                         result.digest,
                         result.status,
                         display::format_balance(*amount),
-                        recipient,
+                        res,
                     ))
                 }
             }
 
             Command::SweepAll { recipient } => {
-                let (result, amount) = service.sweep_all(*recipient).await?;
+                let res = match resolved {
+                    Some(r) => r.clone(),
+                    None => service.resolve_recipient(recipient).await?,
+                };
+                let (result, amount) = service.sweep_all(res.address).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -281,7 +315,8 @@ impl Command {
                         "status": result.status,
                         "amount_nanos": amount,
                         "amount_iota": display::nanos_to_iota(amount),
-                        "recipient": recipient.to_string(),
+                        "recipient": res.address.to_string(),
+                        "name": res.name,
                     })
                     .to_string())
                 } else {
@@ -290,7 +325,7 @@ impl Command {
                         result.digest,
                         result.status,
                         display::format_balance(amount),
-                        recipient,
+                        res,
                     ))
                 }
             }
@@ -341,7 +376,11 @@ impl Command {
             }
 
             Command::Stake { validator, amount } => {
-                let result = service.stake(*validator, *amount).await?;
+                let res = match resolved {
+                    Some(r) => r.clone(),
+                    None => service.resolve_recipient(validator).await?,
+                };
+                let result = service.stake(res.address, *amount).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -349,7 +388,8 @@ impl Command {
                         "status": result.status,
                         "amount_nanos": amount,
                         "amount_iota": display::nanos_to_iota(*amount),
-                        "validator": validator.to_string(),
+                        "validator": res.address.to_string(),
+                        "name": res.name,
                     })
                     .to_string())
                 } else {
@@ -358,7 +398,7 @@ impl Command {
                         result.digest,
                         result.status,
                         display::format_balance(*amount),
-                        validator,
+                        res,
                     ))
                 }
             }
@@ -548,10 +588,10 @@ pub fn help_text(command: Option<&str>) -> String {
             "address\n  Show the wallet's primary address.\n  Alias: addr".to_string()
         }
         Some("transfer") | Some("send") => {
-            "transfer <address> <amount>\n  Send IOTA to another address.\n  Amount is in IOTA (e.g. '1.5' for 1.5 IOTA).\n  Alias: send".to_string()
+            "transfer <address|name.iota> <amount>\n  Send IOTA to an address or .iota name.\n  Amount is in IOTA (e.g. '1.5' for 1.5 IOTA).\n  Alias: send".to_string()
         }
         Some("sweep_all") | Some("sweep") => {
-            "sweep_all <address>\n  Send entire balance minus gas to an address.\n  Alias: sweep".to_string()
+            "sweep_all <address|name.iota>\n  Send entire balance minus gas to an address or .iota name.\n  Alias: sweep".to_string()
         }
         Some("show_transfers") | Some("transfers") | Some("txs") => {
             "show_transfers [in|out|all]\n  Show transaction history.\n  Filter: 'in' (received), 'out' (sent), 'all' (default).\n  Aliases: transfers, txs".to_string()
@@ -560,7 +600,7 @@ pub fn help_text(command: Option<&str>) -> String {
             "show_transfer <digest>\n  Look up a specific transaction by its digest.\n  Alias: tx".to_string()
         }
         Some("stake") => {
-            "stake <validator_address> <amount>\n  Stake IOTA to a validator.\n  Amount is in IOTA (e.g. '1.5' for 1.5 IOTA).\n  Find validators at https://explorer.iota.org/validators".to_string()
+            "stake <validator_address|name.iota> <amount>\n  Stake IOTA to a validator (address or .iota name).\n  Amount is in IOTA (e.g. '1.5' for 1.5 IOTA).\n  Find validators at https://explorer.iota.org/validators".to_string()
         }
         Some("unstake") => {
             "unstake <staked_object_id>\n  Unstake a previously staked IOTA object.\n  Use 'stakes' to find object IDs.".to_string()
@@ -595,8 +635,8 @@ pub fn help_text(command: Option<&str>) -> String {
              \n\
              \x20 balance          Show wallet balance\n\
              \x20 address          Show wallet address\n\
-             \x20 transfer         Send IOTA to an address\n\
-             \x20 sweep_all        Sweep entire balance to an address\n\
+             \x20 transfer         Send IOTA to an address or .iota name\n\
+             \x20 sweep_all        Sweep entire balance to an address or .iota name\n\
              \x20 show_transfers   Show transaction history\n\
              \x20 show_transfer    Look up a transaction by digest\n\
              \x20 stake            Stake IOTA to a validator\n\
@@ -620,6 +660,7 @@ pub fn help_text(command: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iota_sdk::types::Address;
 
     #[test]
     fn parse_balance() {
@@ -761,7 +802,7 @@ mod tests {
     #[test]
     fn help_text_specific() {
         let text = help_text(Some("transfer"));
-        assert!(text.contains("<address>"));
+        assert!(text.contains("<address|name.iota>"));
         assert!(text.contains("<amount>"));
     }
 
@@ -828,28 +869,28 @@ mod tests {
     #[test]
     fn stake_requires_confirmation() {
         let cmd = Command::Stake {
-            validator: Address::ZERO,
+            validator: Recipient::Address(Address::ZERO),
             amount: 1_000_000_000,
         };
-        assert!(cmd.confirmation_prompt().is_some());
+        assert!(cmd.confirmation_prompt(None).is_some());
     }
 
     #[test]
     fn transfer_requires_confirmation() {
         let cmd = Command::Transfer {
-            recipient: Address::ZERO,
+            recipient: Recipient::Address(Address::ZERO),
             amount: 1_000_000_000,
         };
-        let prompt = cmd.confirmation_prompt().unwrap();
+        let prompt = cmd.confirmation_prompt(None).unwrap();
         assert!(prompt.contains("1.000000000 IOTA"));
     }
 
     #[test]
     fn sweep_all_requires_confirmation() {
         let cmd = Command::SweepAll {
-            recipient: Address::ZERO,
+            recipient: Recipient::Address(Address::ZERO),
         };
-        assert!(cmd.confirmation_prompt().is_some());
+        assert!(cmd.confirmation_prompt(None).is_some());
     }
 
     #[test]
@@ -919,8 +960,58 @@ mod tests {
 
     #[test]
     fn seed_requires_confirmation() {
-        assert!(Command::Seed.confirmation_prompt().is_some());
-        assert!(Command::Balance.confirmation_prompt().is_none());
-        assert!(Command::Address.confirmation_prompt().is_none());
+        assert!(Command::Seed.confirmation_prompt(None).is_some());
+        assert!(Command::Balance.confirmation_prompt(None).is_none());
+        assert!(Command::Address.confirmation_prompt(None).is_none());
+    }
+
+    #[test]
+    fn parse_transfer_iota_name() {
+        let cmd = Command::parse("transfer franz.iota 1.5").unwrap();
+        match cmd {
+            Command::Transfer { recipient, amount } => {
+                assert_eq!(recipient, Recipient::Name("franz.iota".into()));
+                assert_eq!(amount, 1_500_000_000);
+            }
+            other => panic!("expected Transfer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_sweep_iota_name() {
+        let cmd = Command::parse("sweep_all franz.iota").unwrap();
+        match cmd {
+            Command::SweepAll { recipient } => {
+                assert_eq!(recipient, Recipient::Name("franz.iota".into()));
+            }
+            other => panic!("expected SweepAll, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_stake_iota_name() {
+        let cmd = Command::parse("stake validator.iota 2").unwrap();
+        match cmd {
+            Command::Stake { validator, amount } => {
+                assert_eq!(validator, Recipient::Name("validator.iota".into()));
+                assert_eq!(amount, 2_000_000_000);
+            }
+            other => panic!("expected Stake, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn confirmation_prompt_with_resolved() {
+        let cmd = Command::Transfer {
+            recipient: Recipient::Name("franz.iota".into()),
+            amount: 1_000_000_000,
+        };
+        let resolved = ResolvedRecipient {
+            address: Address::ZERO,
+            name: Some("franz.iota".into()),
+        };
+        let prompt = cmd.confirmation_prompt(Some(&resolved)).unwrap();
+        assert!(prompt.contains("franz.iota"));
+        assert!(prompt.contains("0x"));
     }
 }

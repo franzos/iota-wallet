@@ -2,6 +2,7 @@ pub mod cache;
 pub mod commands;
 pub mod display;
 pub mod network;
+pub mod recipient;
 pub mod service;
 pub mod signer;
 pub mod wallet;
@@ -11,6 +12,7 @@ pub use cache::TransactionCache;
 pub use wallet::{AccountRecord, Wallet};
 pub use network::NetworkClient;
 pub use commands::Command;
+pub use recipient::{Recipient, ResolvedRecipient};
 pub use service::WalletService;
 pub use signer::{Signer, SoftwareSigner};
 

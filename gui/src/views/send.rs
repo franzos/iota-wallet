@@ -17,8 +17,23 @@ impl App {
             None => "Balance: loading...".into(),
         };
 
-        let recipient = text_input("Recipient address (0x...)", &self.recipient)
+        let recipient = text_input("Recipient address or .iota name", &self.recipient)
             .on_input(Message::RecipientChanged);
+
+        // Show resolved address or error below the input
+        let resolved_hint: Option<Element<Message>> = match &self.resolved_recipient {
+            Some(Ok(addr)) => Some(
+                text(format!("Resolved: {addr}"))
+                    .size(11)
+                    .color(styles::ACCENT)
+                    .into(),
+            ),
+            Some(Err(e)) => Some(
+                text(e.as_str()).size(11).color(styles::DANGER).into(),
+            ),
+            None => None,
+        };
+
         let amount = text_input("Amount (IOTA)", &self.amount)
             .on_input(Message::AmountChanged)
             .on_submit(Message::ConfirmSend);
@@ -30,18 +45,22 @@ impl App {
             send = send.on_press(Message::ConfirmSend);
         }
 
-        let form = column![
+        let mut form = column![
             text(bal_label).size(14).font(styles::BOLD),
             Space::new().height(8),
             text("Recipient").size(12).color(MUTED),
             recipient,
-            Space::new().height(4),
-            text("Amount").size(12).color(MUTED),
-            amount,
-            Space::new().height(12),
-            send,
         ]
         .spacing(4);
+        if let Some(hint) = resolved_hint {
+            form = form.push(hint);
+        }
+        form = form
+            .push(Space::new().height(4))
+            .push(text("Amount").size(12).color(MUTED))
+            .push(amount)
+            .push(Space::new().height(12))
+            .push(send);
 
         let header = row![title, Space::new().width(Fill)]
             .align_y(iced::Alignment::Center);
