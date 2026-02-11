@@ -21,7 +21,7 @@ impl App {
         let refresh = button(text("Refresh").size(14)).on_press(Message::RefreshStakes);
         col = col.push(refresh);
 
-        if self.loading && self.stakes.is_empty() {
+        if self.loading > 0 && self.stakes.is_empty() {
             col = col.push(text("Loading...").size(14));
         } else if self.stakes.is_empty() {
             col = col.push(text("No active stakes.").size(14));
@@ -80,7 +80,7 @@ impl App {
 
                 if stake.status != StakeStatus::Unstaked {
                     let mut unstake_btn = button(text("Unstake").size(11));
-                    if !self.loading {
+                    if self.loading == 0 {
                         unstake_btn = unstake_btn
                             .on_press(Message::ConfirmUnstake(stake.object_id.to_string()));
                     }
@@ -113,7 +113,7 @@ impl App {
             .on_submit(Message::ConfirmStake);
 
         let mut stake_btn = button(text("Stake").size(14)).style(button::primary);
-        if !self.loading && !self.validator_address.is_empty() && !self.stake_amount.is_empty()
+        if self.loading == 0 && !self.validator_address.is_empty() && !self.stake_amount.is_empty()
         {
             stake_btn = stake_btn.on_press(Message::ConfirmStake);
         }
@@ -127,7 +127,7 @@ impl App {
         col = col.push(stake_btn);
 
         // Status messages
-        if self.loading && !self.stakes.is_empty() {
+        if self.loading > 0 && !self.stakes.is_empty() {
             col = col.push(text("Processing...").size(14));
         }
         if let Some(msg) = &self.success_message {

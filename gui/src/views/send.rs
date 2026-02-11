@@ -24,7 +24,7 @@ impl App {
             .on_submit(Message::ConfirmSend);
 
         let mut send = button(text("Send").size(14)).style(button::primary);
-        if !self.loading && !self.recipient.is_empty() && !self.amount.is_empty() {
+        if self.loading == 0 && !self.recipient.is_empty() && !self.amount.is_empty() {
             send = send.on_press(Message::ConfirmSend);
         }
 
@@ -44,7 +44,7 @@ impl App {
         .spacing(5)
         .max_width(500);
 
-        if self.loading {
+        if self.loading > 0 {
             col = col.push(text("Sending...").size(14));
         }
         if let Some(err) = &self.error_message {

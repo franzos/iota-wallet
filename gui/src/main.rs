@@ -81,10 +81,13 @@ struct App {
     settings_new_password_confirm: Zeroizing<String>,
 
     // UI state
-    loading: bool,
+    loading: u32,
     error_message: Option<String>,
     success_message: Option<String>,
     status_message: Option<String>,
+
+    // Persistent clipboard (Linux requires the instance to stay alive)
+    clipboard: Option<arboard::Clipboard>,
 
     // Cached theme (avoids re-allocating every frame)
     theme: Theme,
@@ -126,7 +129,8 @@ impl App {
             settings_old_password: Zeroizing::new(String::new()),
             settings_new_password: Zeroizing::new(String::new()),
             settings_new_password_confirm: Zeroizing::new(String::new()),
-            loading: false,
+            loading: 0,
+            clipboard: arboard::Clipboard::new().ok(),
             error_message: None,
             success_message: None,
             status_message: None,

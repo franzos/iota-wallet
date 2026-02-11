@@ -7,8 +7,10 @@ use iota_wallet_core::wallet::Network;
 
 impl App {
     pub(crate) fn view_wallet_select(&self) -> Element<Message> {
-        let logo = svg(svg::Handle::from_path("gui/assets/iota-logo.svg"))
-            .width(Length::Fixed(200.0));
+        let logo = svg(svg::Handle::from_memory(
+            include_bytes!("../../assets/iota-logo.svg"),
+        ))
+        .width(Length::Fixed(200.0));
 
         let net_btn = |label: &'static str, network: Network| -> Element<Message> {
             let active = self.network_config.network == network;

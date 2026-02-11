@@ -4,9 +4,11 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use iota_wallet_core::commands::Command;
 use iota_wallet_core::network::NetworkClient;
+use iota_wallet_core::service::WalletService;
 use iota_wallet_core::validate_wallet_name;
 use iota_wallet_core::wallet::{Network, NetworkConfig, Wallet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use zeroize::Zeroizing;
 
 #[derive(Parser)]
@@ -180,13 +182,18 @@ async fn run_oneshot(cli: &Cli, cmd_str: &str) -> Result<()> {
     let wallet = Wallet::open(&wallet_path, password.as_bytes())?;
     let effective_config = cli.resolve_network_config(wallet.network_config());
     let network = NetworkClient::new(&effective_config, cli.insecure)?;
+    let service = WalletService::new(
+        network,
+        Arc::new(wallet.signer()),
+        effective_config.network.to_string(),
+    );
 
     let command = Command::parse(cmd_str)?;
     if command == Command::Exit {
         return Ok(());
     }
 
-    let output = command.execute(&wallet, &network, cli.json, cli.insecure).await?;
+    let output = command.execute(&wallet, &service, cli.json, cli.insecure).await?;
     if !output.is_empty() {
         println!("{output}");
     }

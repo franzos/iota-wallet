@@ -5,6 +5,7 @@ use iota_sdk::types::{Address, Digest, ObjectId};
 use crate::cache::TransactionCache;
 use crate::display;
 use crate::network::{NetworkClient, TransactionFilter};
+use crate::service::WalletService;
 use crate::wallet::Wallet;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -215,13 +216,13 @@ impl Command {
     pub async fn execute(
         &self,
         wallet: &Wallet,
-        network: &NetworkClient,
+        service: &WalletService,
         json_output: bool,
         allow_insecure: bool,
     ) -> Result<String> {
         match self {
             Command::Balance => {
-                let nanos = network.balance(wallet.address()).await?;
+                let nanos = service.balance().await?;
                 if json_output {
                     Ok(display::format_balance_json(nanos))
                 } else {
@@ -230,7 +231,7 @@ impl Command {
             }
 
             Command::Address => {
-                let addr = wallet.address().to_string();
+                let addr = service.address().to_string();
                 if json_output {
                     Ok(display::format_address_json(&addr))
                 } else {
@@ -239,14 +240,7 @@ impl Command {
             }
 
             Command::Transfer { recipient, amount } => {
-                let result = network
-                    .send_iota(
-                        &wallet.signer(),
-                        wallet.address(),
-                        *recipient,
-                        *amount,
-                    )
-                    .await?;
+                let result = service.send(*recipient, *amount).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -269,13 +263,7 @@ impl Command {
             }
 
             Command::SweepAll { recipient } => {
-                let (result, amount) = network
-                    .sweep_all(
-                        &wallet.signer(),
-                        wallet.address(),
-                        *recipient,
-                    )
-                    .await?;
+                let (result, amount) = service.sweep_all(*recipient).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -298,12 +286,12 @@ impl Command {
             }
 
             Command::ShowTransfers { filter } => {
-                network.sync_transactions(wallet.address()).await?;
+                service.sync_transactions().await?;
                 let txs = {
                     let cache = TransactionCache::open()?;
-                    let network_str = wallet.network_config().network.to_string();
-                    let address_str = wallet.address().to_string();
-                    cache.query(&network_str, &address_str, filter, 25, 0)?.transactions
+                    let network_str = service.network_name();
+                    let address_str = service.address().to_string();
+                    cache.query(network_str, &address_str, filter, 25, 0)?.transactions
                 };
                 if json_output {
                     let json_txs: Vec<serde_json::Value> = txs
@@ -326,7 +314,7 @@ impl Command {
             }
 
             Command::ShowTransfer { digest } => {
-                let details = network.transaction_details(digest).await?;
+                let details = service.transaction_details(digest).await?;
                 if json_output {
                     Ok(serde_json::json!({
                         "digest": details.digest,
@@ -343,14 +331,7 @@ impl Command {
             }
 
             Command::Stake { validator, amount } => {
-                let result = network
-                    .stake_iota(
-                        &wallet.signer(),
-                        wallet.address(),
-                        *validator,
-                        *amount,
-                    )
-                    .await?;
+                let result = service.stake(*validator, *amount).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -373,13 +354,7 @@ impl Command {
             }
 
             Command::Unstake { staked_object_id } => {
-                let result = network
-                    .unstake_iota(
-                        &wallet.signer(),
-                        wallet.address(),
-                        *staked_object_id,
-                    )
-                    .await?;
+                let result = service.unstake(*staked_object_id).await?;
 
                 if json_output {
                     Ok(serde_json::json!({
@@ -398,7 +373,7 @@ impl Command {
             }
 
             Command::Stakes => {
-                let stakes = network.get_stakes(wallet.address()).await?;
+                let stakes = service.get_stakes().await?;
                 if json_output {
                     let json_stakes: Vec<serde_json::Value> = stakes
                         .iter()
@@ -422,7 +397,7 @@ impl Command {
             }
 
             Command::Tokens => {
-                let balances = network.get_token_balances(wallet.address()).await?;
+                let balances = service.get_token_balances().await?;
                 if json_output {
                     let json_balances: Vec<serde_json::Value> = balances
                         .iter()
@@ -443,7 +418,7 @@ impl Command {
             Command::Status { node_url } => {
                 let status = match node_url {
                     Some(url) => NetworkClient::new_custom(url, allow_insecure)?.status().await?,
-                    None => network.status().await?,
+                    None => service.status().await?,
                 };
                 if json_output {
                     Ok(serde_json::json!({
@@ -459,8 +434,8 @@ impl Command {
             }
 
             Command::Faucet => {
-                network.faucet(wallet.address()).await?;
-                let addr = wallet.address().to_string();
+                service.faucet().await?;
+                let addr = service.address().to_string();
                 if json_output {
                     Ok(serde_json::json!({
                         "status": "ok",

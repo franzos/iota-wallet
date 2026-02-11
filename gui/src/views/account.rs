@@ -21,7 +21,7 @@ impl App {
 
         if !info.is_mainnet && info.network_config.network != Network::Custom {
             let mut faucet = button(text("Faucet").size(14));
-            if !self.loading {
+            if self.loading == 0 {
                 faucet = faucet.on_press(Message::RequestFaucet);
             }
             actions = actions.push(faucet);
@@ -31,7 +31,7 @@ impl App {
             .spacing(5);
 
         // Status messages
-        if self.loading {
+        if self.loading > 0 {
             col = col.push(text("Loading...").size(14));
         }
         if let Some(msg) = &self.status_message {

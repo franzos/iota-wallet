@@ -1,6 +1,6 @@
-use iota_sdk::types::Address;
+use iota_wallet_core::Address;
 use iota_wallet_core::network::NetworkClient;
-use iota_wallet_core::signer::Signer;
+use iota_wallet_core::service::WalletService;
 use iota_wallet_core::wallet::{NetworkConfig, Wallet};
 use std::fmt;
 use std::sync::Arc;
@@ -30,8 +30,7 @@ pub(crate) struct WalletInfo {
     pub(crate) address: Address,
     pub(crate) address_string: String,
     pub(crate) network_config: NetworkConfig,
-    pub(crate) signer: Arc<dyn Signer>,
-    pub(crate) network_client: Arc<NetworkClient>,
+    pub(crate) service: Arc<WalletService>,
     pub(crate) is_mainnet: bool,
 }
 
@@ -47,12 +46,16 @@ impl fmt::Debug for WalletInfo {
 impl WalletInfo {
     pub(crate) fn from_wallet(wallet: &Wallet) -> anyhow::Result<Self> {
         let network_client = NetworkClient::new(wallet.network_config(), false)?;
+        let service = WalletService::new(
+            network_client,
+            Arc::new(wallet.signer()),
+            wallet.network_config().network.to_string(),
+        );
         Ok(Self {
             address: *wallet.address(),
             address_string: wallet.address().to_string(),
             network_config: wallet.network_config().clone(),
-            signer: Arc::new(wallet.signer()),
-            network_client: Arc::new(network_client),
+            service: Arc::new(service),
             is_mainnet: wallet.is_mainnet(),
         })
     }

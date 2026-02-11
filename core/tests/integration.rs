@@ -114,7 +114,7 @@ async fn devnet_send_iota() {
     let amount = 100_000_000u64;
     let result = network
         .send_iota(
-            sender.private_key(),
+            &sender.signer(),
             sender.address(),
             *recipient.address(),
             amount,
@@ -206,7 +206,7 @@ async fn devnet_send_insufficient_balance() {
     let amount = 100_000_000u64; // 0.1 IOTA
 
     let result = network
-        .send_iota(sender.private_key(), sender.address(), recipient, amount)
+        .send_iota(&sender.signer(), sender.address(), recipient, amount)
         .await;
 
     assert!(
@@ -247,7 +247,7 @@ async fn devnet_send_to_self() {
     let send_amount = 100_000_000u64; // 0.1 IOTA
     let result = network
         .send_iota(
-            wallet.private_key(),
+            &wallet.signer(),
             wallet.address(),
             *wallet.address(),
             send_amount,
@@ -348,7 +348,7 @@ async fn devnet_transaction_history_after_send() {
     let amount = 100_000_000u64;
     network
         .send_iota(
-            sender.private_key(),
+            &sender.signer(),
             sender.address(),
             *recipient.address(),
             amount,
@@ -393,7 +393,6 @@ async fn testnet_balance_known_address() {
 /// Test that sending 0 IOTA is rejected at the command parsing level.
 /// This doesn't need network access — it tests the full command parse path.
 #[tokio::test]
-#[ignore]
 async fn devnet_send_zero_rejected() {
     // "transfer <valid_address> 0" should fail at the Command::parse level
     let result = Command::parse(

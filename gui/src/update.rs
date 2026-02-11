@@ -2,12 +2,13 @@ use crate::messages::Message;
 use crate::state::{Screen, WalletInfo};
 use crate::App;
 use iced::Task;
-use iota_sdk::types::{Address, ObjectId};
+use iota_wallet_core::{Address, ObjectId};
 use iota_wallet_core::cache::TransactionCache;
 use iota_wallet_core::display::parse_iota_amount;
 use iota_wallet_core::network::{
     NetworkClient, StakedIotaSummary, TransactionFilter, TransactionSummary,
 };
+use iota_wallet_core::service::WalletService;
 use iota_wallet_core::wallet::{Network, NetworkConfig, Wallet};
 use iota_wallet_core::{list_wallets, validate_wallet_name};
 use std::sync::Arc;
@@ -75,7 +76,7 @@ impl App {
                 let name = self.selected_wallet.clone().unwrap_or_default();
                 let path = self.wallet_dir.join(format!("{name}.wallet"));
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
-                self.loading = true;
+                self.loading += 1;
                 self.error_message = None;
 
                 Task::perform(
@@ -90,7 +91,7 @@ impl App {
             }
 
             Message::WalletOpened(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(info) => {
                         self.wallet_info = Some(info);
@@ -121,12 +122,12 @@ impl App {
                 }
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
                 let config = self.network_config.clone();
-                self.loading = true;
+                self.loading += 1;
                 self.error_message = None;
 
                 Task::perform(
                     async move {
-                        std::fs::create_dir_all(path.parent().unwrap())?;
+                        std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
                         let wallet = Wallet::create_new(path, &pw, config)?;
                         let mnemonic = Zeroizing::new(wallet.mnemonic().to_string());
                         let info = WalletInfo::from_wallet(&wallet)?;
@@ -139,7 +140,7 @@ impl App {
             }
 
             Message::WalletCreated(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok((info, mnemonic)) => {
                         self.selected_wallet = Some(self.wallet_name.clone());
@@ -181,12 +182,12 @@ impl App {
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
                 let mnemonic = Zeroizing::new(self.mnemonic_input.trim().to_string());
                 let config = self.network_config.clone();
-                self.loading = true;
+                self.loading += 1;
                 self.error_message = None;
 
                 Task::perform(
                     async move {
-                        std::fs::create_dir_all(path.parent().unwrap())?;
+                        std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
                         let wallet =
                             Wallet::recover_from_mnemonic(path, &pw, &mnemonic, config)?;
                         WalletInfo::from_wallet(&wallet)
@@ -198,7 +199,7 @@ impl App {
             }
 
             Message::WalletRecovered(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(info) => {
                         self.selected_wallet = Some(self.wallet_name.clone());
@@ -216,7 +217,7 @@ impl App {
             Message::RefreshBalance => self.refresh_dashboard(),
 
             Message::BalanceUpdated(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(b) => {
                         self.balance = Some(b);
@@ -231,15 +232,14 @@ impl App {
                 let Some(info) = &self.wallet_info else {
                     return Task::none();
                 };
-                let address = info.address;
-                let net = info.network_client.clone();
-                self.loading = true;
+                let service = info.service.clone();
+                self.loading += 1;
                 self.error_message = None;
                 self.success_message = None;
 
                 Task::perform(
                     async move {
-                        net.faucet(&address).await?;
+                        service.faucet().await?;
                         Ok(())
                     },
                     |r: Result<(), anyhow::Error>| {
@@ -249,7 +249,7 @@ impl App {
             }
 
             Message::FaucetCompleted(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(()) => {
                         self.success_message = Some("Faucet tokens requested".into());
@@ -262,7 +262,7 @@ impl App {
 
             Message::CopyAddress => {
                 if let Some(info) = &self.wallet_info {
-                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                    if let Some(cb) = &mut self.clipboard {
                         let _ = cb.set_text(&info.address_string);
                         self.status_message = Some("Address copied".into());
                     }
@@ -271,6 +271,7 @@ impl App {
             }
 
             Message::TransactionsLoaded(result) => {
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok((txs, total, deltas)) => {
                         if self.history_page == 0 {
@@ -309,17 +310,15 @@ impl App {
                         return Task::none();
                     }
                 };
-                let sender = info.address;
-                let net = info.network_client.clone();
-                let signer = info.signer.clone();
-                self.loading = true;
+                let service = info.service.clone();
+                self.loading += 1;
                 self.error_message = None;
 
                 Task::perform(
                     async move {
                         let recipient = Address::from_hex(&recipient_str)
                             .map_err(|e| anyhow::anyhow!("Invalid recipient address: {e}"))?;
-                        let result = net.send_iota(signer.as_ref(), &sender, recipient, amount).await?;
+                        let result = service.send(recipient, amount).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -329,7 +328,7 @@ impl App {
             }
 
             Message::SendCompleted(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(digest) => {
                         self.success_message = Some(format!("Sent! Digest: {digest}"));
@@ -413,17 +412,15 @@ impl App {
                         return Task::none();
                     }
                 };
-                let sender = info.address;
-                let net = info.network_client.clone();
-                let signer = info.signer.clone();
-                self.loading = true;
+                let service = info.service.clone();
+                self.loading += 1;
                 self.error_message = None;
 
                 Task::perform(
                     async move {
                         let validator = Address::from_hex(&validator_str)
                             .map_err(|e| anyhow::anyhow!("Invalid validator address: {e}"))?;
-                        let result = net.stake_iota(signer.as_ref(), &sender, validator, amount).await?;
+                        let result = service.stake(validator, amount).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -433,7 +430,7 @@ impl App {
             }
 
             Message::StakeCompleted(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(digest) => {
                         self.success_message = Some(format!("Staked! Digest: {digest}"));
@@ -450,10 +447,8 @@ impl App {
                 let Some(info) = &self.wallet_info else {
                     return Task::none();
                 };
-                let sender = info.address;
-                let net = info.network_client.clone();
-                let signer = info.signer.clone();
-                self.loading = true;
+                let service = info.service.clone();
+                self.loading += 1;
                 self.error_message = None;
                 self.success_message = None;
 
@@ -461,7 +456,7 @@ impl App {
                     async move {
                         let object_id = ObjectId::from_hex(&object_id_str)
                             .map_err(|e| anyhow::anyhow!("Invalid object ID: {e}"))?;
-                        let result = net.unstake_iota(signer.as_ref(), &sender, object_id).await?;
+                        let result = service.unstake(object_id).await?;
                         Ok(result.digest)
                     },
                     |r: Result<String, anyhow::Error>| {
@@ -471,7 +466,7 @@ impl App {
             }
 
             Message::UnstakeCompleted(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(digest) => {
                         self.success_message = Some(format!("Unstaked! Digest: {digest}"));
@@ -483,7 +478,7 @@ impl App {
             }
 
             Message::StakesLoaded(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(s) => self.stakes = s,
                     Err(e) => self.error_message = Some(e),
@@ -501,7 +496,14 @@ impl App {
                     info.network_config = config.clone();
                     info.is_mainnet = network == Network::Mainnet;
                     match NetworkClient::new(&config, false) {
-                        Ok(client) => info.network_client = Arc::new(client),
+                        Ok(client) => {
+                            let signer = info.service.signer().clone();
+                            info.service = Arc::new(WalletService::new(
+                                client,
+                                signer,
+                                network.to_string(),
+                            ));
+                        }
                         Err(e) => {
                             self.error_message = Some(format!("Failed to switch network: {e}"));
                             return Task::none();
@@ -542,7 +544,7 @@ impl App {
                 let path = self.wallet_dir.join(format!("{name}.wallet"));
                 let old_pw = Zeroizing::new(self.settings_old_password.as_bytes().to_vec());
                 let new_pw = Zeroizing::new(self.settings_new_password.as_bytes().to_vec());
-                self.loading = true;
+                self.loading += 1;
                 self.error_message = None;
                 self.success_message = None;
 
@@ -558,7 +560,7 @@ impl App {
             }
 
             Message::ChangePasswordCompleted(result) => {
-                self.loading = false;
+                self.loading = self.loading.saturating_sub(1);
                 match result {
                     Ok(()) => {
                         self.success_message = Some("Password changed".into());
@@ -631,19 +633,18 @@ impl App {
         let Some(info) = &self.wallet_info else {
             return Task::none();
         };
-        self.loading = true;
+        self.loading += 2;
         self.history_page = 0;
 
-        let addr1 = info.address;
-        let net1 = info.network_client.clone();
-        let addr2 = info.address;
-        let net2 = info.network_client.clone();
-        let network = info.network_config.network;
+        let svc1 = info.service.clone();
+        let svc2 = info.service.clone();
+        let network_name = info.service.network_name().to_string();
+        let address_str = info.address.to_string();
 
         Task::batch([
             Task::perform(
                 async move {
-                    net1.balance(&addr1).await
+                    svc1.balance().await
                 },
                 |r: Result<u64, anyhow::Error>| {
                     Message::BalanceUpdated(r.map_err(|e| e.to_string()))
@@ -651,13 +652,10 @@ impl App {
             ),
             Task::perform(
                 async move {
-                    net2.sync_transactions(&addr2).await?;
-                    // Cache ops are sync -- no await, no Send issue
+                    svc2.sync_transactions().await?;
                     let cache = TransactionCache::open()?;
-                    let network_str = network.to_string();
-                    let address_str = addr2.to_string();
-                    let page = cache.query(&network_str, &address_str, &TransactionFilter::All, 25, 0)?;
-                    let deltas = cache.query_epoch_deltas(&network_str, &address_str)?;
+                    let page = cache.query(&network_name, &address_str, &TransactionFilter::All, 25, 0)?;
+                    let deltas = cache.query_epoch_deltas(&network_name, &address_str)?;
                     Ok((page.transactions, page.total, deltas))
                 },
                 |r: Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), anyhow::Error>| {
@@ -671,7 +669,7 @@ impl App {
         let Some(info) = &self.wallet_info else {
             return Task::none();
         };
-        let network_str = info.network_config.network.to_string();
+        let network_str = info.service.network_name().to_string();
         let address_str = info.address.to_string();
         let offset = self.history_page * 25;
 
@@ -691,13 +689,12 @@ impl App {
         let Some(info) = &self.wallet_info else {
             return Task::none();
         };
-        self.loading = true;
-        let addr = info.address;
-        let net = info.network_client.clone();
+        self.loading += 1;
+        let service = info.service.clone();
 
         Task::perform(
             async move {
-                net.get_stakes(&addr).await
+                service.get_stakes().await
             },
             |r: Result<Vec<StakedIotaSummary>, anyhow::Error>| {
                 Message::StakesLoaded(r.map_err(|e| e.to_string()))

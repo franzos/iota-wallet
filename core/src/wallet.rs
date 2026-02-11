@@ -205,10 +205,6 @@ impl Wallet {
         }
     }
 
-    pub fn private_key(&self) -> &Ed25519PrivateKey {
-        &self.private_key
-    }
-
     pub fn signer(&self) -> SoftwareSigner {
         SoftwareSigner::new(self.private_key.clone())
     }

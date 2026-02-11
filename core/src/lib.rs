@@ -2,6 +2,7 @@ pub mod cache;
 pub mod commands;
 pub mod display;
 pub mod network;
+pub mod service;
 pub mod signer;
 pub mod wallet;
 pub mod wallet_file;
@@ -10,7 +11,10 @@ pub use cache::TransactionCache;
 pub use wallet::Wallet;
 pub use network::NetworkClient;
 pub use commands::Command;
+pub use service::WalletService;
 pub use signer::{Signer, SoftwareSigner};
+
+pub use iota_sdk::types::{Address, ObjectId};
 
 /// Reject wallet names containing path separators or traversal sequences.
 pub fn validate_wallet_name(name: &str) -> anyhow::Result<()> {

@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 iota-wallet-core = { path = "../core" }
-iota-sdk = "3.0.0-alpha.1"
 iced = { version = "0.14", features = ["tokio", "svg", "canvas"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"

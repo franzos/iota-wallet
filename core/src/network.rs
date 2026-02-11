@@ -665,13 +665,7 @@ impl NetworkClient {
         })
     }
 
-    pub fn network(&self) -> &Network {
-        &self.network
-    }
 
-    pub fn client(&self) -> &Client {
-        &self.client
-    }
 }
 
 pub struct TransferResult {

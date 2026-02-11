@@ -15,7 +15,7 @@ impl App {
             .secure(true);
 
         let mut unlock = button(text("Unlock").size(14)).style(button::primary);
-        if !self.loading {
+        if self.loading == 0 {
             unlock = unlock.on_press(Message::UnlockWallet);
         }
 
@@ -31,7 +31,7 @@ impl App {
         .spacing(5)
         .max_width(400);
 
-        if self.loading {
+        if self.loading > 0 {
             col = col.push(text("Unlocking...").size(14));
         }
         if let Some(err) = &self.error_message {

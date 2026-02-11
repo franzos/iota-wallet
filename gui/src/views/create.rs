@@ -24,7 +24,7 @@ impl App {
             .secure(true);
 
         let mut create = button(text("Create").size(14)).style(button::primary);
-        if !self.loading && self.validate_create_form().is_none() {
+        if self.loading == 0 && self.validate_create_form().is_none() {
             create = create.on_press(Message::CreateWallet);
         }
         let back = button(text("Back").size(14)).on_press(Message::GoTo(Screen::WalletSelect));
@@ -41,7 +41,7 @@ impl App {
         .spacing(5)
         .max_width(400);
 
-        if self.loading {
+        if self.loading > 0 {
             col = col.push(text("Creating wallet...").size(14));
         }
         if let Some(err) = &self.error_message {

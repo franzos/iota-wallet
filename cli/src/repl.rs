@@ -3,8 +3,10 @@ use anyhow::{Context, Result};
 use iota_wallet_core::commands::Command;
 use iota_wallet_core::list_wallets;
 use iota_wallet_core::network::NetworkClient;
+use iota_wallet_core::service::WalletService;
 use iota_wallet_core::wallet::Wallet;
 use reedline::{DefaultCompleter, DefaultPrompt, DefaultPromptSegment, Reedline, Signal};
+use std::sync::Arc;
 use zeroize::{Zeroize, Zeroizing};
 use crate::Cli;
 
@@ -82,6 +84,11 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
 
     let effective_config = cli.resolve_network_config(wallet.network_config());
     let network = NetworkClient::new(&effective_config, cli.insecure)?;
+    let service = WalletService::new(
+        network,
+        Arc::new(wallet.signer()),
+        effective_config.network.to_string(),
+    );
 
     println!(
         "Wallet ready. Address: {}",
@@ -176,7 +183,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                                 continue;
                             }
                         }
-                        match cmd.execute(&wallet, &network, false, cli.insecure).await {
+                        match cmd.execute(&wallet, &service, false, cli.insecure).await {
                             Ok(output) => {
                                 if !output.is_empty() {
                                     println!("{output}");

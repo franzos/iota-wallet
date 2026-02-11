@@ -21,7 +21,7 @@ impl App {
             .on_submit(Message::RecoverWallet)
             .secure(true);
 
-        let can_submit = !self.loading
+        let can_submit = self.loading == 0
             && self.validate_create_form().is_none()
             && !self.mnemonic_input.trim().is_empty();
         let mut recover = button(text("Recover").size(14)).style(button::primary);
@@ -43,7 +43,7 @@ impl App {
         .spacing(5)
         .max_width(400);
 
-        if self.loading {
+        if self.loading > 0 {
             col = col.push(text("Recovering wallet...").size(14));
         }
         if let Some(err) = &self.error_message {

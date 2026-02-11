@@ -70,7 +70,7 @@ impl App {
                 .on_submit(Message::ChangePassword)
                 .secure(true);
 
-            let can_submit = !self.loading
+            let can_submit = self.loading == 0
                 && !self.settings_old_password.is_empty()
                 && !self.settings_new_password.is_empty()
                 && *self.settings_new_password == *self.settings_new_password_confirm;
@@ -85,7 +85,7 @@ impl App {
             col = col.push(Space::new().height(5));
             col = col.push(change_btn);
 
-            if self.loading {
+            if self.loading > 0 {
                 col = col.push(text("Changing password...").size(14));
             }
             if let Some(msg) = &self.success_message {
