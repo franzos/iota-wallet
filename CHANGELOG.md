@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4] - 2026-02-11
+
+### Added
+- Multi-account support: derive multiple addresses from the same seed
+
+### Fixed
+- GUI: Copying to clipboard on Wayland
+
 ## [0.1.3] - 2026-02-10
 
 ### Changed

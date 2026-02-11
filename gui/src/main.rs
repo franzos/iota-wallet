@@ -147,7 +147,9 @@ impl App {
             loading: 0,
             account_input: String::new(),
             session_password: Zeroizing::new(Vec::new()),
-            clipboard: arboard::Clipboard::new().ok(),
+            clipboard: arboard::Clipboard::new()
+                .map_err(|e| eprintln!("clipboard init failed: {e}"))
+                .ok(),
             error_message: None,
             success_message: None,
             status_message: None,

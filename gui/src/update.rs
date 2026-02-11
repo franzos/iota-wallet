@@ -267,8 +267,12 @@ impl App {
             Message::CopyAddress => {
                 if let Some(info) = &self.wallet_info {
                     if let Some(cb) = &mut self.clipboard {
-                        let _ = cb.set_text(&info.address_string);
-                        self.status_message = Some("Address copied".into());
+                        match cb.set_text(&info.address_string) {
+                            Ok(_) => self.status_message = Some("Address copied".into()),
+                            Err(e) => self.error_message = Some(format!("Copy failed: {e}")),
+                        }
+                    } else {
+                        self.error_message = Some("Clipboard not available".into());
                     }
                 }
                 Task::none()
