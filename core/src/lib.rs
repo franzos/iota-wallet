@@ -8,7 +8,7 @@ pub mod wallet;
 pub mod wallet_file;
 
 pub use cache::TransactionCache;
-pub use wallet::Wallet;
+pub use wallet::{AccountRecord, Wallet};
 pub use network::NetworkClient;
 pub use commands::Command;
 pub use service::WalletService;

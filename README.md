@@ -43,6 +43,9 @@ iota-wallet --wallet mywallet
 iota-wallet --cmd "balance"
 iota-wallet --cmd "address" --json
 iota-wallet --wallet mywallet --password-stdin --cmd "balance" < password.txt
+
+# Use a specific account index (derives a different address from the same seed)
+iota-wallet --account 1 --cmd "address"
 ```
 
 On first launch you'll be prompted to create a new wallet or recover from a seed phrase. The wallet file is encrypted with your password (argon2id + AES-256-GCM).
@@ -60,7 +63,7 @@ iota-wallet-gui --mainnet
 iota-wallet-gui --devnet
 ```
 
-The GUI supports wallet creation, recovery, sending/receiving IOTA, transaction history with pagination, staking/unstaking, a balance chart, and password changes. The GUI requires X11 or Wayland on Linux.
+The GUI supports wallet creation, recovery, sending/receiving IOTA, transaction history with pagination, staking/unstaking, a balance chart, multi-account switching, and password changes. The GUI requires X11 or Wayland on Linux.
 
 ## Commands
 
@@ -78,6 +81,7 @@ The GUI supports wallet creation, recovery, sending/receiving IOTA, transaction 
 | `tokens` | `token_balances` | Show all coin/token balances |
 | `status [node_url]` | | Show epoch, gas price, network, and node URL |
 | `faucet` | | Request testnet/devnet tokens |
+| `account [index]` | `acc` | Show current account or switch (e.g. `account 3`) |
 | `seed` | | Display seed phrase (requires confirmation) |
 | `password` | `passwd` | Change wallet encryption password |
 | `help [cmd]` | | Show help |

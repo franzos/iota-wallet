@@ -36,6 +36,8 @@ pub enum Command {
     Status { node_url: Option<String> },
     /// Show seed phrase (mnemonic)
     Seed,
+    /// Show or switch account index: account [index]
+    Account { index: Option<u64> },
     /// Change wallet password
     Password,
     /// Print help
@@ -174,6 +176,14 @@ impl Command {
             "faucet" => Ok(Command::Faucet),
 
             "seed" => Ok(Command::Seed),
+
+            "account" | "acc" => {
+                let index = arg1
+                    .map(|s| s.parse::<u64>())
+                    .transpose()
+                    .map_err(|e| anyhow::anyhow!("Invalid account index: {e}"))?;
+                Ok(Command::Account { index })
+            }
 
             "password" | "passwd" => Ok(Command::Password),
 
@@ -461,6 +471,62 @@ impl Command {
                 }
             }
 
+            Command::Account { index } => {
+                match index {
+                    None => {
+                        let idx = wallet.account_index();
+                        let addr = wallet.address().to_string();
+                        if json_output {
+                            let known: Vec<serde_json::Value> = wallet
+                                .known_accounts()
+                                .iter()
+                                .map(|a| {
+                                    let a_addr = wallet
+                                        .derive_address_for(a.index)
+                                        .map(|a| a.to_string())
+                                        .unwrap_or_default();
+                                    serde_json::json!({
+                                        "index": a.index,
+                                        "address": a_addr,
+                                        "active": a.index == idx,
+                                    })
+                                })
+                                .collect();
+                            Ok(serde_json::json!({
+                                "account_index": idx,
+                                "address": addr,
+                                "known_accounts": known,
+                            })
+                            .to_string())
+                        } else {
+                            let mut out = format!("Account #{idx}\n  {addr}\n");
+                            let known = wallet.known_accounts();
+                            if !known.is_empty() {
+                                out.push_str("\nKnown accounts:\n");
+                                for a in known {
+                                    let a_addr = wallet
+                                        .derive_address_for(a.index)
+                                        .map(|a| a.to_string())
+                                        .unwrap_or_default();
+                                    let short = if a_addr.len() > 20 {
+                                        format!("{}...{}", &a_addr[..10], &a_addr[a_addr.len()-8..])
+                                    } else {
+                                        a_addr
+                                    };
+                                    let active = if a.index == idx { "  (active)" } else { "" };
+                                    out.push_str(&format!("  #{:<4} {}{}\n", a.index, short, active));
+                                }
+                            }
+                            out.push_str("\nSwitch: account <index>");
+                            Ok(out)
+                        }
+                    }
+                    Some(_) => {
+                        bail!("Account switching requires interactive mode. Use the REPL instead of --cmd.")
+                    }
+                }
+            }
+
             Command::Password => {
                 bail!("The password command requires interactive mode. Use the REPL instead of --cmd.")
             }
@@ -514,6 +580,9 @@ pub fn help_text(command: Option<&str>) -> String {
         Some("seed") => {
             "seed\n  Display the wallet's seed phrase (mnemonic).\n  Keep this secret!".to_string()
         }
+        Some("account") | Some("acc") => {
+            "account [index]\n  Show current account and known accounts, or switch.\n  Example: account 3\n  Each account derives a unique address from the same seed.\n  Alias: acc".to_string()
+        }
         Some("password") | Some("passwd") => {
             "password\n  Change the wallet's encryption password.\n  Alias: passwd".to_string()
         }
@@ -537,6 +606,7 @@ pub fn help_text(command: Option<&str>) -> String {
              \x20 status           Show network status\n\
              \x20 faucet           Request testnet/devnet tokens\n\
              \x20 seed             Show seed phrase\n\
+             \x20 account          Show or switch account\n\
              \x20 password         Change wallet password\n\
              \x20 help [cmd]       Show help for a command\n\
              \x20 exit             Exit the wallet\n\
@@ -821,6 +891,23 @@ mod tests {
     fn parse_tokens() {
         assert_eq!(Command::parse("tokens").unwrap(), Command::Tokens);
         assert_eq!(Command::parse("token_balances").unwrap(), Command::Tokens);
+    }
+
+    #[test]
+    fn parse_account() {
+        assert_eq!(
+            Command::parse("account").unwrap(),
+            Command::Account { index: None }
+        );
+        assert_eq!(
+            Command::parse("acc").unwrap(),
+            Command::Account { index: None }
+        );
+        assert_eq!(
+            Command::parse("account 3").unwrap(),
+            Command::Account { index: Some(3) }
+        );
+        assert!(Command::parse("account abc").is_err());
     }
 
     #[test]

@@ -32,14 +32,15 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
     let wallet_path = cli.wallet_path()?;
     let wallet_name = &cli.wallet;
 
-    let wallet = if wallet_path.exists() {
+    let (mut wallet, session_password) = if wallet_path.exists() {
         println!("Opening wallet '{wallet_name}'...");
         let password = Zeroizing::new(
             rpassword::prompt_password("Password: ")
                 .context("Failed to read password")?,
         );
-        Wallet::open(&wallet_path, password.as_bytes())?
-        // password dropped and zeroized here
+        let w = Wallet::open(&wallet_path, password.as_bytes())?;
+        let pw_bytes = Zeroizing::new(password.as_bytes().to_vec());
+        (w, pw_bytes)
     } else {
         println!("Wallet '{wallet_name}' not found. Creating new wallet...");
         let action = prompt_action()?;
@@ -49,9 +50,10 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
         }
 
         let password = prompt_new_password()?;
+        let pw_bytes = Zeroizing::new(password.as_bytes().to_vec());
         let network_config = cli.network_config();
 
-        match action {
+        let w = match action {
             WalletAction::CreateNew => {
                 let w = Wallet::create_new(
                     wallet_path.clone(),
@@ -78,13 +80,20 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                 w
             }
             WalletAction::Quit => unreachable!(),
-        }
+        };
+        (w, pw_bytes)
         // password and mnemonic dropped and zeroized here
     };
 
+    // Apply --account override if set
+    if let Some(idx) = cli.account {
+        wallet.switch_account(idx)?;
+        wallet.save(&session_password)?;
+    }
+
     let effective_config = cli.resolve_network_config(wallet.network_config());
     let network = NetworkClient::new(&effective_config, cli.insecure)?;
-    let service = WalletService::new(
+    let mut service = WalletService::new(
         network,
         Arc::new(wallet.signer()),
         effective_config.network.to_string(),
@@ -99,7 +108,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
 
     // Build the REPL prompt
     let prompt_str = format!("[wallet {}]", wallet.short_address());
-    let prompt = DefaultPrompt::new(
+    let mut prompt = DefaultPrompt::new(
         DefaultPromptSegment::Basic(prompt_str),
         DefaultPromptSegment::Empty,
     );
@@ -116,6 +125,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
         "status".into(),
         "faucet".into(),
         "seed".into(),
+        "account".into(), "acc".into(),
         "password".into(), "passwd".into(),
         "help".into(),
         "exit".into(), "quit".into(), "q".into(),
@@ -135,6 +145,32 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                     Ok(Command::Exit) => {
                         println!("Goodbye.");
                         break;
+                    }
+                    Ok(Command::Account { index: Some(idx) }) => {
+                        match wallet.switch_account(idx) {
+                            Ok(()) => {
+                                if let Err(e) = wallet.save(&session_password) {
+                                    eprintln!("Error saving wallet: {e}");
+                                    continue;
+                                }
+                                let network = NetworkClient::new(&effective_config, cli.insecure)?;
+                                service = WalletService::new(
+                                    network,
+                                    Arc::new(wallet.signer()),
+                                    effective_config.network.to_string(),
+                                );
+                                let prompt_str = format!("[wallet {}]", wallet.short_address());
+                                prompt = DefaultPrompt::new(
+                                    DefaultPromptSegment::Basic(prompt_str),
+                                    DefaultPromptSegment::Empty,
+                                );
+                                println!(
+                                    "Switched to account #{idx}. Address: {}",
+                                    wallet.address()
+                                );
+                            }
+                            Err(e) => eprintln!("Error: {e}"),
+                        }
                     }
                     Ok(Command::Password) => {
                         print!("Change wallet password? [y/N]: ");

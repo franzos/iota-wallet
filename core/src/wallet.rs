@@ -10,12 +10,24 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::signer::SoftwareSigner;
 use crate::wallet_file;
 
+/// Per-account metadata stored alongside the wallet.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AccountRecord {
+    pub index: u64,
+    #[serde(default)]
+    pub last_balance: Option<u64>,
+}
+
 /// Serialized wallet state — what gets encrypted and stored on disk.
 #[derive(Serialize, Deserialize)]
 pub struct WalletData {
     pub mnemonic: String,
     #[serde(rename = "network")]
     pub network_config: NetworkConfig,
+    #[serde(default)]
+    pub active_account_index: u64,
+    #[serde(default)]
+    pub accounts: Vec<AccountRecord>,
 }
 
 impl Drop for WalletData {
@@ -66,6 +78,23 @@ fn generate_mnemonic() -> Result<String> {
     Ok(mnemonic.to_string())
 }
 
+/// Derive an Ed25519 keypair and address from a mnemonic + account index.
+fn derive_key(mnemonic: &str, account_index: u64) -> Result<(Ed25519PrivateKey, Address)> {
+    let idx = if account_index == 0 { None } else { Some(account_index) };
+    let private_key = Ed25519PrivateKey::from_mnemonic(mnemonic, idx, None)
+        .map_err(|e| anyhow::anyhow!("Failed to derive key from mnemonic: {e}"))?;
+    let address = private_key.public_key().derive_address();
+    Ok((private_key, address))
+}
+
+/// Insert an account index into the list if not already present, keeping it sorted.
+fn ensure_account_in_list(accounts: &mut Vec<AccountRecord>, index: u64) {
+    if !accounts.iter().any(|a| a.index == index) {
+        accounts.push(AccountRecord { index, last_balance: None });
+        accounts.sort_by_key(|a| a.index);
+    }
+}
+
 /// In-memory wallet with derived key material.
 pub struct Wallet {
     data: WalletData,
@@ -82,15 +111,13 @@ impl Wallet {
         network_config: NetworkConfig,
     ) -> Result<Self> {
         let mnemonic = generate_mnemonic()?;
-
-        let private_key = Ed25519PrivateKey::from_mnemonic(&mnemonic, None, None)
-            .map_err(|e| anyhow::anyhow!("Failed to derive key from mnemonic: {e}"))?;
-        let public_key = private_key.public_key();
-        let address = public_key.derive_address();
+        let (private_key, address) = derive_key(&mnemonic, 0)?;
 
         let data = WalletData {
             mnemonic,
             network_config,
+            active_account_index: 0,
+            accounts: vec![AccountRecord { index: 0, last_balance: None }],
         };
 
         let json = Zeroizing::new(
@@ -112,13 +139,13 @@ impl Wallet {
     pub fn open(path: &Path, password: &[u8]) -> Result<Self> {
         let json = wallet_file::load_from_file(path, password)
             .context("Failed to open wallet file. Wrong password or corrupt file?")?;
-        let data: WalletData = serde_json::from_slice(&json)
+        let mut data: WalletData = serde_json::from_slice(&json)
             .context("Failed to parse wallet data. File may be corrupt.")?;
 
-        let private_key = Ed25519PrivateKey::from_mnemonic(&data.mnemonic, None, None)
-            .map_err(|e| anyhow::anyhow!("Failed to derive key from stored mnemonic: {e}"))?;
-        let public_key = private_key.public_key();
-        let address = public_key.derive_address();
+        let (private_key, address) = derive_key(&data.mnemonic, data.active_account_index)?;
+
+        // Ensure active account is in the known list (handles old wallet files)
+        ensure_account_in_list(&mut data.accounts, data.active_account_index);
 
         Ok(Self {
             data,
@@ -135,15 +162,13 @@ impl Wallet {
         mnemonic: &str,
         network_config: NetworkConfig,
     ) -> Result<Self> {
-        // Validate mnemonic by trying to derive a key
-        let private_key = Ed25519PrivateKey::from_mnemonic(mnemonic, None, None)
-            .map_err(|e| anyhow::anyhow!("Invalid mnemonic phrase: {e}"))?;
-        let public_key = private_key.public_key();
-        let address = public_key.derive_address();
+        let (private_key, address) = derive_key(mnemonic, 0)?;
 
         let data = WalletData {
             mnemonic: mnemonic.to_string(),
             network_config,
+            active_account_index: 0,
+            accounts: vec![AccountRecord { index: 0, last_balance: None }],
         };
 
         let json = Zeroizing::new(
@@ -189,6 +214,31 @@ impl Wallet {
         wallet_file::save_to_file(&self.path, &json, password)
             .context("Failed to save wallet file")?;
         Ok(())
+    }
+
+    /// Switch to a different account index. Re-derives the keypair and address.
+    /// Does NOT save — caller decides whether to persist.
+    pub fn switch_account(&mut self, index: u64) -> Result<()> {
+        let (private_key, address) = derive_key(&self.data.mnemonic, index)?;
+        self.private_key = private_key;
+        self.address = address;
+        self.data.active_account_index = index;
+        ensure_account_in_list(&mut self.data.accounts, index);
+        Ok(())
+    }
+
+    pub fn account_index(&self) -> u64 {
+        self.data.active_account_index
+    }
+
+    pub fn known_accounts(&self) -> &[AccountRecord] {
+        &self.data.accounts
+    }
+
+    /// Derive the address for an account index without switching to it.
+    pub fn derive_address_for(&self, index: u64) -> Result<Address> {
+        let (_, address) = derive_key(&self.data.mnemonic, index)?;
+        Ok(address)
     }
 
     pub fn address(&self) -> &Address {
@@ -359,6 +409,42 @@ mod tests {
         // New password works, data intact
         let reopened = Wallet::open(&path, b"new-password").unwrap();
         assert_eq!(*reopened.address(), original_address);
+    }
+
+    #[test]
+    fn switch_account_changes_address() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.wallet");
+        let password = b"test-password";
+
+        let mut wallet = Wallet::create_new(
+            path,
+            password,
+            NetworkConfig::default(),
+        )
+        .unwrap();
+
+        let addr0 = *wallet.address();
+        assert_eq!(wallet.account_index(), 0);
+        assert_eq!(wallet.known_accounts().len(), 1);
+
+        wallet.switch_account(1).unwrap();
+        assert_eq!(wallet.account_index(), 1);
+        assert_ne!(*wallet.address(), addr0, "account 1 should have a different address");
+        assert_eq!(wallet.known_accounts().len(), 2);
+
+        wallet.switch_account(0).unwrap();
+        assert_eq!(*wallet.address(), addr0, "switching back to 0 should restore the original address");
+        // Still 2 known accounts (0 and 1)
+        assert_eq!(wallet.known_accounts().len(), 2);
+
+        // Switching to same index again doesn't duplicate
+        wallet.switch_account(1).unwrap();
+        assert_eq!(wallet.known_accounts().len(), 2);
+
+        // Known accounts are sorted
+        let indices: Vec<u64> = wallet.known_accounts().iter().map(|a| a.index).collect();
+        assert_eq!(indices, vec![0, 1]);
     }
 
     #[test]

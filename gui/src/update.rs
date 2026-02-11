@@ -29,6 +29,7 @@ impl App {
                     self.epoch_deltas.clear();
                     self.balance_chart.clear();
                     self.stakes.clear();
+                    self.session_password.zeroize();
                 }
                 let load_stakes = screen == Screen::Staking;
                 self.screen = screen;
@@ -76,6 +77,7 @@ impl App {
                 let name = self.selected_wallet.clone().unwrap_or_default();
                 let path = self.wallet_dir.join(format!("{name}.wallet"));
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
+                self.session_password = pw.clone();
                 self.loading += 1;
                 self.error_message = None;
 
@@ -121,6 +123,7 @@ impl App {
                     return Task::none();
                 }
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
+                self.session_password = pw.clone();
                 let config = self.network_config.clone();
                 self.loading += 1;
                 self.error_message = None;
@@ -180,6 +183,7 @@ impl App {
                     return Task::none();
                 }
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
+                self.session_password = pw.clone();
                 let mnemonic = Zeroizing::new(self.mnemonic_input.trim().to_string());
                 let config = self.network_config.clone();
                 self.loading += 1;
@@ -486,6 +490,64 @@ impl App {
                 Task::none()
             }
 
+            // -- Account switching --
+            Message::AccountInputChanged(v) => {
+                self.account_input = v;
+                Task::none()
+            }
+
+            Message::AccountGoPressed => {
+                let trimmed = self.account_input.trim();
+                match trimmed.trim_start_matches('#').parse::<u64>() {
+                    Ok(index) => {
+                        self.account_input.clear();
+                        return self.update(Message::AccountIndexChanged(index));
+                    }
+                    Err(_) => {
+                        self.error_message = Some("Invalid account index".into());
+                    }
+                }
+                Task::none()
+            }
+
+            Message::AccountIndexChanged(index) => {
+                let name = self.selected_wallet.clone().unwrap_or_default();
+                let path = self.wallet_dir.join(format!("{name}.wallet"));
+                let pw = self.session_password.clone();
+                self.loading += 1;
+                self.error_message = None;
+
+                Task::perform(
+                    async move {
+                        let mut wallet = Wallet::open(&path, &pw)?;
+                        wallet.switch_account(index)?;
+                        wallet.save(&pw)?;
+                        WalletInfo::from_wallet(&wallet)
+                    },
+                    |r: Result<WalletInfo, anyhow::Error>| {
+                        Message::AccountSwitched(r.map_err(|e| e.to_string()))
+                    },
+                )
+            }
+
+            Message::AccountSwitched(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok(info) => {
+                        self.wallet_info = Some(info);
+                        self.balance = None;
+                        self.transactions.clear();
+                        self.account_transactions.clear();
+                        self.epoch_deltas.clear();
+                        self.balance_chart.clear();
+                        self.stakes.clear();
+                        return self.refresh_dashboard();
+                    }
+                    Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
             Message::NetworkChanged(network) => {
                 let config = NetworkConfig {
                     network,
@@ -588,6 +650,7 @@ impl App {
         self.status_message = None;
         self.created_mnemonic = None;
         self.expanded_tx = None;
+        self.account_input.clear();
         self.validator_address.clear();
         self.stake_amount.clear();
         self.settings_old_password.zeroize();

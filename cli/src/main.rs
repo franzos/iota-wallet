@@ -53,6 +53,10 @@ pub(crate) struct Cli {
     /// Allow connecting to non-HTTPS node URLs
     #[arg(long)]
     insecure: bool,
+
+    /// Account index to use (default: stored in wallet, initially 0)
+    #[arg(long)]
+    account: Option<u64>,
 }
 
 impl Cli {
@@ -179,7 +183,10 @@ async fn run_oneshot(cli: &Cli, cmd_str: &str) -> Result<()> {
         );
     }
 
-    let wallet = Wallet::open(&wallet_path, password.as_bytes())?;
+    let mut wallet = Wallet::open(&wallet_path, password.as_bytes())?;
+    if let Some(idx) = cli.account {
+        wallet.switch_account(idx)?;
+    }
     let effective_config = cli.resolve_network_config(wallet.network_config());
     let network = NetworkClient::new(&effective_config, cli.insecure)?;
     let service = WalletService::new(

@@ -1,7 +1,7 @@
 use iota_wallet_core::Address;
 use iota_wallet_core::network::NetworkClient;
 use iota_wallet_core::service::WalletService;
-use iota_wallet_core::wallet::{NetworkConfig, Wallet};
+use iota_wallet_core::wallet::{AccountRecord, NetworkConfig, Wallet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -32,6 +32,8 @@ pub(crate) struct WalletInfo {
     pub(crate) network_config: NetworkConfig,
     pub(crate) service: Arc<WalletService>,
     pub(crate) is_mainnet: bool,
+    pub(crate) account_index: u64,
+    pub(crate) known_accounts: Vec<AccountRecord>,
 }
 
 impl fmt::Debug for WalletInfo {
@@ -57,6 +59,8 @@ impl WalletInfo {
             network_config: wallet.network_config().clone(),
             service: Arc::new(service),
             is_mainnet: wallet.is_mainnet(),
+            account_index: wallet.account_index(),
+            known_accounts: wallet.known_accounts().to_vec(),
         })
     }
 }

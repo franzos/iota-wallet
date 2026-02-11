@@ -63,6 +63,12 @@ pub(crate) enum Message {
     StakesLoaded(Result<Vec<StakedIotaSummary>, String>),
     RefreshStakes,
 
+    // Account switching
+    AccountInputChanged(String),
+    AccountGoPressed,
+    AccountIndexChanged(u64),
+    AccountSwitched(Result<WalletInfo, String>),
+
     // Settings
     NetworkChanged(Network),
     SettingsOldPasswordChanged(String),

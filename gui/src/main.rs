@@ -5,7 +5,7 @@ mod state;
 mod update;
 mod views;
 
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
 use iced::theme::Palette;
 use iced::{Color, Element, Fill, Length, Task, Theme};
 
@@ -86,11 +86,25 @@ struct App {
     success_message: Option<String>,
     status_message: Option<String>,
 
+    // Account switching
+    account_input: String,
+    session_password: Zeroizing<Vec<u8>>,
+
     // Persistent clipboard (Linux requires the instance to stay alive)
     clipboard: Option<arboard::Clipboard>,
 
     // Cached theme (avoids re-allocating every frame)
     theme: Theme,
+}
+
+/// Display type for the account picker dropdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AccountOption(u64);
+
+impl std::fmt::Display for AccountOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{}", self.0)
+    }
 }
 
 impl App {
@@ -130,6 +144,8 @@ impl App {
             settings_new_password: Zeroizing::new(String::new()),
             settings_new_password_confirm: Zeroizing::new(String::new()),
             loading: 0,
+            account_input: String::new(),
+            session_password: Zeroizing::new(Vec::new()),
             clipboard: arboard::Clipboard::new().ok(),
             error_message: None,
             success_message: None,
@@ -269,13 +285,12 @@ impl App {
             return Space::new().into();
         };
 
+        // -- Main header row: balance left, address + network right --
         let wallet_name = self
             .selected_wallet
             .as_deref()
             .unwrap_or("Wallet");
-        let name_label = text(wallet_name).size(14);
-
-        let network_badge = text(format!("{}", info.network_config.network)).size(12);
+        let name_label = text(wallet_name).size(14).color(MUTED);
 
         let bal = match self.balance {
             Some(b) => format_balance(b),
@@ -284,23 +299,83 @@ impl App {
         let balance_display = text(bal).size(28);
 
         let addr_short = if info.address_string.len() > 20 {
-            format!("{}...{}", &info.address_string[..10], &info.address_string[info.address_string.len() - 8..])
+            format!(
+                "{}...{}",
+                &info.address_string[..10],
+                &info.address_string[info.address_string.len() - 8..]
+            )
         } else {
             info.address_string.clone()
         };
         let addr_row = row![
-            text(addr_short).size(12),
+            text(addr_short).size(12).color(MUTED),
             button(text("Copy").size(11)).on_press(Message::CopyAddress),
         ]
         .spacing(8)
         .align_y(iced::Alignment::Center);
 
-        let left = column![name_label, balance_display].spacing(2);
-        let right = column![network_badge, addr_row].spacing(2).align_x(iced::Alignment::End);
+        let network_badge = text(format!("{}", info.network_config.network))
+            .size(12)
+            .color(MUTED);
 
-        row![left, Space::new().width(Fill), right]
+        let left = column![name_label, balance_display].spacing(2);
+        let right = column![network_badge, addr_row]
+            .spacing(2)
+            .align_x(iced::Alignment::End);
+
+        let main_row = row![left, Space::new().width(Fill), right]
             .padding(15)
-            .align_y(iced::Alignment::Center)
-            .into()
+            .align_y(iced::Alignment::Center);
+
+        // -- Account toolbar: slim bar with SURFACE background --
+        let account_idx = info.account_index;
+
+        let label = text(format!("Account {wallet_name} #{account_idx}"))
+            .size(12);
+
+        let divider = text("|").size(12).color(BORDER);
+
+        let go_label = text("Jump to:").size(11).color(MUTED);
+        let go_input = text_input("#", &self.account_input)
+            .on_input(Message::AccountInputChanged)
+            .on_submit(Message::AccountGoPressed)
+            .size(11)
+            .width(Length::Fixed(48.0));
+        let go_btn = button(text("Go").size(11)).on_press(Message::AccountGoPressed);
+
+        let divider2 = text("|").size(12).color(BORDER);
+
+        let select_label = text("Select").size(11).color(MUTED);
+        let options: Vec<AccountOption> = info
+            .known_accounts
+            .iter()
+            .map(|a| AccountOption(a.index))
+            .collect();
+        let selected = Some(AccountOption(account_idx));
+        let dropdown = pick_list(options, selected, |opt| {
+            Message::AccountIndexChanged(opt.0)
+        })
+        .text_size(11)
+        .width(Length::Fixed(72.0));
+
+        let toolbar = row![
+            label,
+            divider,
+            go_label, go_input, go_btn,
+            divider2,
+            select_label, dropdown,
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
+
+        let toolbar_bar = container(toolbar)
+            .width(Fill)
+            .padding([6, 15])
+            .style(|_theme| container::Style {
+                background: Some(iced::Background::Color(SURFACE)),
+                ..Default::default()
+            });
+
+        column![main_row, toolbar_bar].into()
     }
 }
