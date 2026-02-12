@@ -3,7 +3,7 @@
 /// IOTA uses 9 decimal places (nanos). 1 IOTA = 1_000_000_000 nanos.
 use anyhow::{anyhow, bail, Result};
 
-use crate::network::{NetworkStatus, StakeStatus, StakedIotaSummary, TokenBalance, TransactionDetailsSummary, TransactionDirection, TransactionSummary};
+use crate::network::{NetworkStatus, NftSummary, StakeStatus, StakedIotaSummary, TokenBalance, TransactionDetailsSummary, TransactionDirection, TransactionSummary};
 
 /// Format a raw token amount using the given number of decimal places.
 /// E.g. format_amount(1_500_000, 6) -> "1.500000"
@@ -222,6 +222,30 @@ pub fn format_token_balances_with_meta(
         };
 
         lines.push(format!("  {:<8} {}  ({})", label, amount, objects));
+    }
+    lines.join("\n")
+}
+
+/// Format a list of NFTs for display.
+#[must_use]
+pub fn format_nfts(nfts: &[NftSummary]) -> String {
+    if nfts.is_empty() {
+        return "No NFTs found.".to_string();
+    }
+
+    let mut lines = Vec::with_capacity(nfts.len());
+    for nft in nfts {
+        let name = nft.name.as_deref().unwrap_or("(unnamed)");
+        let desc = nft.description.as_deref().unwrap_or("");
+        let desc_display = if desc.is_empty() {
+            String::new()
+        } else if desc.chars().count() > 40 {
+            let truncated: String = desc.chars().take(37).collect();
+            format!("  \"{truncated}...\"")
+        } else {
+            format!("  \"{desc}\"")
+        };
+        lines.push(format!("  {}  {}{}", nft.object_id, name, desc_display));
     }
     lines.join("\n")
 }

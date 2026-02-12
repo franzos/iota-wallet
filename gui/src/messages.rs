@@ -1,6 +1,6 @@
 use crate::TokenOption;
 use crate::state::{Screen, SignMode, WalletInfo};
-use iota_wallet_core::network::{CoinMeta, StakedIotaSummary, TokenBalance, TransactionSummary};
+use iota_wallet_core::network::{CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary};
 use iota_wallet_core::wallet::Network;
 use iota_wallet_core::SignedMessage;
 use zeroize::Zeroizing;
@@ -68,6 +68,15 @@ pub(crate) enum Message {
     UnstakeCompleted(Result<String, String>),
     StakesLoaded(Result<Vec<StakedIotaSummary>, String>),
     RefreshStakes,
+
+    // NFTs
+    NftsLoaded(Result<Vec<NftSummary>, String>),
+    RefreshNfts,
+    SendNftSelected(String),
+    SendNftRecipientChanged(String),
+    ConfirmSendNft,
+    SendNftCompleted(Result<String, String>),
+    CancelSendNft,
 
     // Account switching
     AccountInputChanged(String),

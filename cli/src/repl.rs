@@ -126,6 +126,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
         "sign_message".into(), "sign".into(),
         "verify_message".into(), "verify".into(),
         "notarize".into(),
+        "nfts".into(), "send_nft".into(),
         "tokens".into(), "token_balances".into(),
         "status".into(),
         "faucet".into(),

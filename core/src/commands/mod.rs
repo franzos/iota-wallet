@@ -52,6 +52,10 @@ pub enum Command {
     Stakes,
     /// Show non-native token balances
     Tokens,
+    /// List owned NFTs
+    Nfts,
+    /// Transfer an NFT: send_nft <object_id> <address|name.iota>
+    SendNft { object_id: ObjectId, recipient: Recipient },
     /// Show network status: status [node_url]
     Status { node_url: Option<String> },
     /// Show seed phrase (mnemonic)
@@ -79,6 +83,7 @@ impl Command {
             Command::Transfer { recipient, .. } => Some(recipient),
             Command::SweepAll { recipient, .. } => Some(recipient),
             Command::Stake { validator, .. } => Some(validator),
+            Command::SendNft { recipient, .. } => Some(recipient),
             _ => None,
         }
     }
@@ -116,6 +121,9 @@ impl Command {
                 display::format_balance(*amount),
                 display_recipient(validator),
             )),
+            Command::SendNft { object_id, recipient } => {
+                Some(format!("Send NFT {} to {}?", object_id, display_recipient(recipient)))
+            }
             Command::SignMessage { message } => {
                 let preview = truncate_preview(message, 40);
                 Some(format!("Sign message \"{preview}\" with your private key?"))

@@ -31,6 +31,12 @@ pub fn help_text(command: Option<&str>) -> String {
         Some("tokens") | Some("token_balances") => {
             "tokens\n  Show all coin/token balances for this wallet.\n  Alias: token_balances".to_string()
         }
+        Some("nfts") => {
+            "nfts\n  List owned NFTs (objects with Display metadata).".to_string()
+        }
+        Some("send_nft") => {
+            "send_nft <object_id> <address|name.iota>\n  Transfer an NFT to a recipient.\n  Use 'nfts' to find object IDs.".to_string()
+        }
         Some("status") => {
             "status [node_url]\n  Show current epoch, gas price, network, and node URL.\n  Optionally query a different node.".to_string()
         }
@@ -72,6 +78,8 @@ pub fn help_text(command: Option<&str>) -> String {
              \x20 unstake          Unstake a staked IOTA object\n\
              \x20 stakes           Show active stakes\n\
              \x20 tokens           Show token balances\n\
+             \x20 nfts             List owned NFTs\n\
+             \x20 send_nft         Transfer an NFT to a recipient\n\
              \x20 status           Show network status\n\
              \x20 faucet           Request testnet/devnet tokens\n\
              \x20 sign_message      Sign a message with your key\n\

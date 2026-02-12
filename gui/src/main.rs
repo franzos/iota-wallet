@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 
 use iota_wallet_core::display::{format_balance, format_balance_with_symbol};
 use iota_wallet_core::list_wallets;
-use iota_wallet_core::network::{CoinMeta, StakedIotaSummary, TokenBalance, TransactionSummary};
+use iota_wallet_core::network::{CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary};
 use iota_wallet_core::wallet::{Network, NetworkConfig};
 use iota_wallet_core::SignedMessage;
 
@@ -111,6 +111,11 @@ struct App {
     token_balances: Vec<TokenBalance>,
     token_meta: Vec<CoinMeta>,
     selected_token: Option<TokenOption>,
+
+    // NFTs
+    nfts: Vec<NftSummary>,
+    send_nft_object_id: Option<String>,
+    send_nft_recipient: String,
 
     // Persistent clipboard (Linux requires the instance to stay alive)
     clipboard: Option<arboard::Clipboard>,
@@ -245,6 +250,9 @@ impl App {
             token_balances: Vec::new(),
             token_meta: Vec::new(),
             selected_token: None,
+            nfts: Vec::new(),
+            send_nft_object_id: None,
+            send_nft_recipient: String::new(),
             clipboard: arboard::Clipboard::new()
                 .map_err(|e| eprintln!("clipboard init failed: {e}"))
                 .ok(),
@@ -303,7 +311,7 @@ impl App {
                 .into()
             }
             Screen::Account | Screen::Send | Screen::Receive | Screen::History
-            | Screen::Staking | Screen::Sign | Screen::Settings => self.view_main(),
+            | Screen::Staking | Screen::Nfts | Screen::Sign | Screen::Settings => self.view_main(),
         }
     }
 
@@ -316,6 +324,7 @@ impl App {
             Screen::Receive => self.view_receive(),
             Screen::History => self.view_history(),
             Screen::Staking => self.view_staking(),
+            Screen::Nfts => self.view_nfts(),
             Screen::Sign => self.view_sign(),
             Screen::Settings => self.view_settings(),
             _ => unreachable!(),
@@ -356,6 +365,7 @@ impl App {
             nav_btn("↙", "Receive", Screen::Receive),
             nav_btn("≡", "History", Screen::History),
             nav_btn("◆", "Staking", Screen::Staking),
+            nav_btn("▣", "NFTs", Screen::Nfts),
             nav_btn("✎", "Sign", Screen::Sign),
         ]
         .spacing(2);

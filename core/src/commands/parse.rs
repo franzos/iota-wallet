@@ -141,6 +141,28 @@ impl Command {
 
             "tokens" | "token_balances" => Ok(Command::Tokens),
 
+            "nfts" => Ok(Command::Nfts),
+
+            "send_nft" => {
+                let id_str = arg1.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing object ID. Usage: send_nft <object_id> <address|name.iota>"
+                    )
+                })?;
+                let addr_str = arg2.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing recipient. Usage: send_nft <object_id> <address|name.iota>"
+                    )
+                })?;
+
+                let object_id = ObjectId::from_hex(id_str).map_err(|e| {
+                    anyhow::anyhow!("Invalid object ID '{id_str}': {e}")
+                })?;
+                let recipient = Recipient::parse(addr_str.split_whitespace().next().unwrap_or(addr_str))?;
+
+                Ok(Command::SendNft { object_id, recipient })
+            }
+
             "status" => Ok(Command::Status {
                 node_url: arg1.map(|s| s.to_string()),
             }),

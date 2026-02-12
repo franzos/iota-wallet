@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 use iota_sdk::types::{Address, Digest, ObjectId};
 
 use crate::network::{
-    CoinMeta, NetworkClient, NetworkStatus, StakedIotaSummary, TokenBalance,
+    CoinMeta, NetworkClient, NetworkStatus, NftSummary, StakedIotaSummary, TokenBalance,
     TransactionDetailsSummary, TransferResult,
 };
 use crate::recipient::{Recipient, ResolvedRecipient};
@@ -89,6 +89,16 @@ impl WalletService {
 
     pub async fn get_token_balances(&self) -> Result<Vec<TokenBalance>> {
         self.network.get_token_balances(self.signer.address()).await
+    }
+
+    pub async fn get_nfts(&self) -> Result<Vec<NftSummary>> {
+        self.network.get_nfts(self.signer.address()).await
+    }
+
+    pub async fn send_nft(&self, object_id: ObjectId, recipient: Address) -> Result<TransferResult> {
+        self.network
+            .send_nft(self.signer.as_ref(), self.signer.address(), object_id, recipient)
+            .await
     }
 
     pub async fn sync_transactions(&self) -> Result<()> {

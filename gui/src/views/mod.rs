@@ -1,6 +1,7 @@
 mod account;
 mod create;
 mod history;
+mod nfts;
 mod open;
 mod receive;
 mod recover;

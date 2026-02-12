@@ -6,7 +6,7 @@ use iota_wallet_core::{ObjectId, Recipient, SignedMessage, verify_message};
 use iota_wallet_core::cache::TransactionCache;
 use iota_wallet_core::display::{parse_iota_amount, parse_token_amount};
 use iota_wallet_core::network::{
-    CoinMeta, NetworkClient, StakedIotaSummary, TokenBalance, TransactionFilter,
+    CoinMeta, NetworkClient, NftSummary, StakedIotaSummary, TokenBalance, TransactionFilter,
     TransactionSummary,
 };
 use iota_wallet_core::service::WalletService;
@@ -31,14 +31,19 @@ impl App {
                     self.epoch_deltas.clear();
                     self.balance_chart.clear();
                     self.stakes.clear();
+                    self.nfts.clear();
                     self.token_balances.clear();
                     self.token_meta.clear();
                     self.session_password.zeroize();
                 }
                 let load_stakes = screen == Screen::Staking;
+                let load_nfts = screen == Screen::Nfts;
                 self.screen = screen;
                 if load_stakes {
                     return self.load_stakes();
+                }
+                if load_nfts {
+                    return self.load_nfts();
                 }
                 Task::none()
             }
@@ -605,6 +610,94 @@ impl App {
                 Task::none()
             }
 
+            // -- NFTs --
+            Message::NftsLoaded(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok(nfts) => self.nfts = nfts,
+                    Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
+            Message::RefreshNfts => self.load_nfts(),
+
+            Message::SendNftSelected(object_id) => {
+                self.send_nft_object_id = Some(object_id);
+                self.send_nft_recipient.clear();
+                self.error_message = None;
+                self.success_message = None;
+                Task::none()
+            }
+
+            Message::SendNftRecipientChanged(v) => {
+                self.send_nft_recipient = v;
+                Task::none()
+            }
+
+            Message::ConfirmSendNft => {
+                let Some(info) = &self.wallet_info else {
+                    return Task::none();
+                };
+                let Some(object_id_str) = &self.send_nft_object_id else {
+                    return Task::none();
+                };
+                let recipient_str = self.send_nft_recipient.trim().to_string();
+                if recipient_str.is_empty() {
+                    self.error_message = Some("Recipient is required".into());
+                    return Task::none();
+                }
+                let recipient = match Recipient::parse(&recipient_str) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        self.error_message = Some(e.to_string());
+                        return Task::none();
+                    }
+                };
+                let object_id = match ObjectId::from_hex(object_id_str) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        self.error_message = Some(format!("Invalid object ID: {e}"));
+                        return Task::none();
+                    }
+                };
+                let service = info.service.clone();
+                self.loading += 1;
+                self.error_message = None;
+
+                Task::perform(
+                    async move {
+                        let resolved = service.resolve_recipient(&recipient).await?;
+                        let result = service.send_nft(object_id, resolved.address).await?;
+                        Ok(result.digest)
+                    },
+                    |r: Result<String, anyhow::Error>| {
+                        Message::SendNftCompleted(r.map_err(|e| e.to_string()))
+                    },
+                )
+            }
+
+            Message::SendNftCompleted(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok(digest) => {
+                        self.success_message = Some(format!("NFT sent! Digest: {digest}"));
+                        self.send_nft_object_id = None;
+                        self.send_nft_recipient.clear();
+                        return self.load_nfts();
+                    }
+                    Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
+            Message::CancelSendNft => {
+                self.send_nft_object_id = None;
+                self.send_nft_recipient.clear();
+                self.error_message = None;
+                Task::none()
+            }
+
             // -- Account switching --
             Message::AccountInputChanged(v) => {
                 self.account_input = v;
@@ -656,6 +749,7 @@ impl App {
                         self.epoch_deltas.clear();
                         self.balance_chart.clear();
                         self.stakes.clear();
+                        self.nfts.clear();
                         self.token_balances.clear();
                         self.token_meta.clear();
                         self.selected_token = None;
@@ -834,6 +928,7 @@ impl App {
                 self.epoch_deltas.clear();
                 self.balance_chart.clear();
                 self.stakes.clear();
+                self.nfts.clear();
                 self.token_balances.clear();
                 self.token_meta.clear();
                 self.selected_token = None;
@@ -949,6 +1044,8 @@ impl App {
         self.verify_result = None;
         self.notarize_description.clear();
         self.notarize_result = None;
+        self.send_nft_object_id = None;
+        self.send_nft_recipient.clear();
         self.settings_old_password.zeroize();
         self.settings_new_password.zeroize();
         self.settings_new_password_confirm.zeroize();
@@ -1058,6 +1155,23 @@ impl App {
             },
             |r: Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), anyhow::Error>| {
                 Message::TransactionsLoaded(r.map_err(|e| e.to_string()))
+            },
+        )
+    }
+
+    fn load_nfts(&mut self) -> Task<Message> {
+        let Some(info) = &self.wallet_info else {
+            return Task::none();
+        };
+        self.loading += 1;
+        let service = info.service.clone();
+
+        Task::perform(
+            async move {
+                service.get_nfts().await
+            },
+            |r: Result<Vec<NftSummary>, anyhow::Error>| {
+                Message::NftsLoaded(r.map_err(|e| e.to_string()))
             },
         )
     }

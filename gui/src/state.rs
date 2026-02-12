@@ -21,6 +21,7 @@ pub(crate) enum Screen {
     Receive,
     History,
     Staking,
+    Nfts,
     Sign,
     Settings,
 }

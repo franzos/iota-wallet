@@ -1,6 +1,7 @@
 /// Thin wrapper around the SDK's GraphQL client for network operations.
 mod history;
 mod names;
+mod nfts;
 mod notarize;
 mod staking;
 mod transfer;

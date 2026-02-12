@@ -484,6 +484,54 @@ impl Command {
                 }
             }
 
+            Command::Nfts => {
+                let nfts = service.get_nfts().await?;
+                if json_output {
+                    let json_nfts: Vec<serde_json::Value> = nfts
+                        .iter()
+                        .map(|n| {
+                            serde_json::json!({
+                                "object_id": n.object_id.to_string(),
+                                "object_type": n.object_type,
+                                "name": n.name,
+                                "description": n.description,
+                                "image_url": n.image_url,
+                            })
+                        })
+                        .collect();
+                    Ok(serde_json::to_string_pretty(&json_nfts)?)
+                } else {
+                    Ok(display::format_nfts(&nfts))
+                }
+            }
+
+            Command::SendNft { object_id, recipient } => {
+                let res = match resolved {
+                    Some(r) => r.clone(),
+                    None => service.resolve_recipient(recipient).await?,
+                };
+                let result = service.send_nft(*object_id, res.address).await?;
+
+                if json_output {
+                    Ok(serde_json::json!({
+                        "digest": result.digest,
+                        "status": result.status,
+                        "object_id": object_id.to_string(),
+                        "recipient": res.address.to_string(),
+                        "name": res.name,
+                    })
+                    .to_string())
+                } else {
+                    Ok(format!(
+                        "NFT sent!\n  Digest: {}\n  Status: {}\n  Object: {} -> {}",
+                        result.digest,
+                        result.status,
+                        object_id,
+                        res,
+                    ))
+                }
+            }
+
             Command::Help { command } => Ok(help_text(command.as_deref())),
 
             Command::Exit => Ok(String::new()),

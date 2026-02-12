@@ -102,6 +102,15 @@ pub enum TransactionDirection {
     Out,
 }
 
+#[derive(Debug, Clone)]
+pub struct NftSummary {
+    pub object_id: ObjectId,
+    pub object_type: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub image_url: Option<String>,
+}
+
 impl std::fmt::Display for TransactionDirection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
