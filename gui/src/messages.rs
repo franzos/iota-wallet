@@ -1,5 +1,6 @@
+use crate::TokenOption;
 use crate::state::{Screen, WalletInfo};
-use iota_wallet_core::network::{StakedIotaSummary, TransactionSummary};
+use iota_wallet_core::network::{CoinMeta, StakedIotaSummary, TokenBalance, TransactionSummary};
 use iota_wallet_core::wallet::Network;
 use zeroize::Zeroizing;
 
@@ -44,6 +45,8 @@ pub(crate) enum Message {
 
     // Send
     RecipientResolved(Result<String, String>),
+    TokenSelected(TokenOption),
+    TokenBalancesLoaded(Result<(Vec<TokenBalance>, Vec<CoinMeta>), String>),
     ConfirmSend,
     SendCompleted(Result<String, String>),
 

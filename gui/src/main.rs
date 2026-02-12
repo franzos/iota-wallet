@@ -13,9 +13,9 @@ use iced::{Color, Element, Fill, Font, Length, Task, Theme};
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
-use iota_wallet_core::display::format_balance;
+use iota_wallet_core::display::{format_balance, format_balance_with_symbol};
 use iota_wallet_core::list_wallets;
-use iota_wallet_core::network::{StakedIotaSummary, TransactionSummary};
+use iota_wallet_core::network::{CoinMeta, StakedIotaSummary, TokenBalance, TransactionSummary};
 use iota_wallet_core::wallet::{Network, NetworkConfig};
 
 use chart::BalanceChart;
@@ -95,6 +95,11 @@ struct App {
     account_input: String,
     session_password: Zeroizing<Vec<u8>>,
 
+    // Token balances and metadata
+    token_balances: Vec<TokenBalance>,
+    token_meta: Vec<CoinMeta>,
+    selected_token: Option<TokenOption>,
+
     // Persistent clipboard (Linux requires the instance to stay alive)
     clipboard: Option<arboard::Clipboard>,
 
@@ -109,6 +114,69 @@ struct AccountOption(u64);
 impl std::fmt::Display for AccountOption {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{}", self.0)
+    }
+}
+
+/// Display type for the token picker dropdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TokenOption {
+    coin_type: String,
+    symbol: String,
+    balance_display: String,
+}
+
+impl TokenOption {
+    fn iota(balance: Option<u64>) -> Self {
+        Self {
+            coin_type: "0x2::iota::IOTA".to_string(),
+            symbol: "IOTA".to_string(),
+            balance_display: match balance {
+                Some(b) => format_balance(b),
+                None => "IOTA".to_string(),
+            },
+        }
+    }
+
+    fn from_token_balance(tb: &TokenBalance, meta: Option<&CoinMeta>) -> Self {
+        if tb.coin_type == "0x2::iota::IOTA" {
+            return Self {
+                coin_type: tb.coin_type.clone(),
+                symbol: "IOTA".to_string(),
+                balance_display: format_balance(tb.total_balance),
+            };
+        }
+
+        let (symbol, balance_str) = match meta {
+            Some(m) => {
+                let sym = if m.symbol.is_empty() {
+                    tb.coin_type.split("::").last().unwrap_or(&tb.coin_type).to_string()
+                } else {
+                    m.symbol.clone()
+                };
+                let display = format_balance_with_symbol(tb.total_balance, m.decimals, &sym);
+                (sym, display)
+            }
+            None => {
+                let sym = tb.coin_type.split("::").last().unwrap_or(&tb.coin_type).to_string();
+                (sym.clone(), format!("{} {}", tb.total_balance, sym))
+            }
+        };
+
+        Self {
+            coin_type: tb.coin_type.clone(),
+            symbol,
+            balance_display: balance_str,
+        }
+    }
+
+    fn is_iota(&self) -> bool {
+        self.coin_type == "0x2::iota::IOTA"
+    }
+}
+
+impl std::fmt::Display for TokenOption {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.balance_display)
     }
 }
 
@@ -153,6 +221,9 @@ impl App {
             loading: 0,
             account_input: String::new(),
             session_password: Zeroizing::new(Vec::new()),
+            token_balances: Vec::new(),
+            token_meta: Vec::new(),
+            selected_token: None,
             clipboard: arboard::Clipboard::new()
                 .map_err(|e| eprintln!("clipboard init failed: {e}"))
                 .ok(),

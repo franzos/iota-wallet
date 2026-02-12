@@ -3,6 +3,7 @@ use crate::state::Screen;
 use crate::{styles, App, MUTED};
 use iced::widget::{button, canvas, column, container, row, text, Space};
 use iced::{Element, Fill, Length};
+use iota_wallet_core::display::format_balance_with_symbol;
 use iota_wallet_core::wallet::Network;
 
 impl App {
@@ -62,6 +63,45 @@ impl App {
 
             col = col.push(
                 container(chart_content)
+                    .padding(20)
+                    .width(Fill)
+                    .style(styles::card),
+            );
+        }
+
+        // Token balances card (non-IOTA tokens only)
+        let non_iota_tokens: Vec<_> = self.token_balances.iter()
+            .filter(|b| b.coin_type != "0x2::iota::IOTA")
+            .collect();
+        if !non_iota_tokens.is_empty() {
+            let mut token_content = column![
+                text("Token Balances").size(16),
+            ]
+            .spacing(8);
+
+            for tb in &non_iota_tokens {
+                let meta = self.token_meta.iter().find(|m| m.coin_type == tb.coin_type);
+                let symbol = meta.map(|m| m.symbol.as_str())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| tb.coin_type.split("::").last().unwrap_or(&tb.coin_type));
+                let balance_str = match meta {
+                    Some(m) => format_balance_with_symbol(tb.total_balance, m.decimals, symbol),
+                    None => format!("{} {}", tb.total_balance, symbol),
+                };
+                let objects = if tb.coin_object_count == 1 { "1 object" } else { &format!("{} objects", tb.coin_object_count) };
+                token_content = token_content.push(
+                    row![
+                        text(symbol).size(14).font(styles::BOLD).width(Length::Fixed(100.0)),
+                        text(balance_str).size(14),
+                        text(format!("({})", objects)).size(12).color(MUTED),
+                    ]
+                    .spacing(12)
+                    .align_y(iced::Alignment::Center),
+                );
+            }
+
+            col = col.push(
+                container(token_content)
                     .padding(20)
                     .width(Fill)
                     .style(styles::card),

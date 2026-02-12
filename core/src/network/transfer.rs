@@ -1,8 +1,10 @@
 use anyhow::{Context, Result, bail};
+use iota_sdk::graphql_client::pagination::PaginationFilter;
 use iota_sdk::transaction_builder::TransactionBuilder;
 use iota_sdk::transaction_builder::unresolved::Argument as UnresolvedArg;
 use iota_sdk::types::{
-    Address, Argument, Command as TxCommand, Input, Transaction, TransactionKind,
+    Address, Argument, Command as TxCommand, Input, ObjectId, StructTag, Transaction,
+    TransactionKind,
 };
 
 use super::NetworkClient;
@@ -89,6 +91,58 @@ impl NetworkClient {
         };
 
         Ok((result, amount))
+    }
+
+    /// Send a non-IOTA token. When `amount` is 0, transfers all coin objects
+    /// (sweep). Otherwise merges coins and splits the requested amount.
+    pub async fn send_token(
+        &self,
+        signer: &dyn Signer,
+        sender: &Address,
+        recipient: Address,
+        coin_type: &str,
+        amount: u64,
+    ) -> Result<TransferResult> {
+        let struct_tag: StructTag = coin_type.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid coin type '{coin_type}': {e}"))?;
+
+        // Collect all coin ObjectIds for this type
+        let mut coin_ids: Vec<ObjectId> = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = self
+                .client
+                .coins(
+                    *sender,
+                    struct_tag.clone(),
+                    PaginationFilter {
+                        cursor: cursor.clone(),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .context("Failed to query token coins")?;
+            coin_ids.extend(page.data().iter().map(|c| *c.id()));
+            if !page.page_info().has_next_page {
+                break;
+            }
+            cursor = page.page_info().end_cursor.clone();
+        }
+
+        if coin_ids.is_empty() {
+            bail!("No {coin_type} coins found in wallet.");
+        }
+
+        let mut builder = TransactionBuilder::new(*sender).with_client(&self.client);
+        if amount == 0 {
+            // Sweep — transfer all coins without splitting
+            builder.send_coins::<_, u64>(coin_ids, recipient, None);
+        } else {
+            builder.send_coins(coin_ids, recipient, amount);
+        }
+
+        let tx = builder.finish().await.context("Failed to build token transfer transaction")?;
+        self.sign_and_execute(&tx, signer).await
     }
 }
 

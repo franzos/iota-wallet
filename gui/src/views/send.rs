@@ -1,7 +1,7 @@
 use crate::messages::Message;
-use crate::{styles, App, MUTED};
-use iced::widget::{button, column, container, row, text, text_input, Space};
-use iced::{Element, Fill};
+use crate::{styles, App, TokenOption, MUTED};
+use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
+use iced::{Element, Fill, Length};
 use iota_wallet_core::display::format_balance;
 
 impl App {
@@ -10,12 +10,26 @@ impl App {
             return text("No wallet loaded").into();
         }
 
-        let title = text("Send IOTA").size(24);
+        let title = text("Send").size(24);
 
         let bal_label = match self.balance {
             Some(b) => format!("Available: {}", format_balance(b)),
             None => "Balance: loading...".into(),
         };
+
+        // Token picker
+        let token_options: Vec<TokenOption> = if self.token_balances.is_empty() {
+            vec![TokenOption::iota(self.balance)]
+        } else {
+            self.token_balances.iter().map(|tb| {
+                let meta = self.token_meta.iter().find(|m| m.coin_type == tb.coin_type);
+                TokenOption::from_token_balance(tb, meta)
+            }).collect()
+        };
+        let selected = self.selected_token.clone().unwrap_or_else(|| TokenOption::iota(self.balance));
+        let token_picker = pick_list(token_options, Some(selected), Message::TokenSelected)
+            .text_size(13)
+            .width(Length::Fixed(280.0));
 
         let recipient = text_input("Recipient address or .iota name", &self.recipient)
             .on_input(Message::RecipientChanged);
@@ -34,7 +48,9 @@ impl App {
             None => None,
         };
 
-        let amount = text_input("Amount (IOTA)", &self.amount)
+        let token_symbol = self.selected_token.as_ref().map(|t| t.symbol.as_str()).unwrap_or("IOTA");
+        let amount_placeholder = format!("Amount ({token_symbol})");
+        let amount = text_input(&amount_placeholder, &self.amount)
             .on_input(Message::AmountChanged)
             .on_submit(Message::ConfirmSend);
 
@@ -47,7 +63,10 @@ impl App {
 
         let mut form = column![
             text(bal_label).size(14).font(styles::BOLD),
-            Space::new().height(8),
+            Space::new().height(4),
+            text("Token").size(12).color(MUTED),
+            token_picker,
+            Space::new().height(4),
             text("Recipient").size(12).color(MUTED),
             recipient,
         ]

@@ -4,9 +4,10 @@ use crate::App;
 use iced::Task;
 use iota_wallet_core::{ObjectId, Recipient};
 use iota_wallet_core::cache::TransactionCache;
-use iota_wallet_core::display::parse_iota_amount;
+use iota_wallet_core::display::{parse_iota_amount, parse_token_amount};
 use iota_wallet_core::network::{
-    NetworkClient, StakedIotaSummary, TransactionFilter, TransactionSummary,
+    CoinMeta, NetworkClient, StakedIotaSummary, TokenBalance, TransactionFilter,
+    TransactionSummary,
 };
 use iota_wallet_core::service::WalletService;
 use iota_wallet_core::wallet::{Network, NetworkConfig, Wallet};
@@ -26,9 +27,12 @@ impl App {
                     self.wallet_info = None;
                     self.balance = None;
                     self.transactions.clear();
+                    self.account_transactions.clear();
                     self.epoch_deltas.clear();
                     self.balance_chart.clear();
                     self.stakes.clear();
+                    self.token_balances.clear();
+                    self.token_meta.clear();
                     self.session_password.zeroize();
                 }
                 let load_stakes = screen == Screen::Staking;
@@ -321,6 +325,26 @@ impl App {
                 Task::none()
             }
 
+            Message::TokenSelected(option) => {
+                self.selected_token = Some(option);
+                Task::none()
+            }
+
+            Message::TokenBalancesLoaded(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok((balances, meta)) => {
+                        self.token_balances = balances;
+                        self.token_meta = meta;
+                    }
+                    Err(e) => {
+                        // Non-fatal — token balances are supplementary
+                        eprintln!("Failed to load token balances: {e}");
+                    }
+                }
+                Task::none()
+            }
+
             Message::ConfirmSend => {
                 let Some(info) = &self.wallet_info else {
                     return Task::none();
@@ -337,31 +361,60 @@ impl App {
                         return Task::none();
                     }
                 };
-                let amount = match parse_iota_amount(&self.amount) {
-                    Ok(0) => {
-                        self.error_message = Some("Amount must be greater than 0".into());
-                        return Task::none();
-                    }
-                    Ok(a) => a,
-                    Err(e) => {
-                        self.error_message = Some(e.to_string());
-                        return Task::none();
-                    }
-                };
-                let service = info.service.clone();
-                self.loading += 1;
-                self.error_message = None;
 
-                Task::perform(
-                    async move {
-                        let resolved = service.resolve_recipient(&recipient).await?;
-                        let result = service.send(resolved.address, amount).await?;
-                        Ok(result.digest)
-                    },
-                    |r: Result<String, anyhow::Error>| {
-                        Message::SendCompleted(r.map_err(|e| e.to_string()))
-                    },
-                )
+                let is_token = self.selected_token.as_ref().map(|t| !t.is_iota()).unwrap_or(false);
+
+                if is_token {
+                    let token = self.selected_token.clone().unwrap();
+                    let amount_str = self.amount.clone();
+                    let service = info.service.clone();
+                    self.loading += 1;
+                    self.error_message = None;
+
+                    Task::perform(
+                        async move {
+                            let resolved = service.resolve_recipient(&recipient).await?;
+                            let meta = service.resolve_coin_type(&token.coin_type).await?;
+                            let raw = parse_token_amount(&amount_str, meta.decimals)?;
+                            let amount = u64::try_from(raw)
+                                .map_err(|_| anyhow::anyhow!("Amount too large"))?;
+                            if amount == 0 {
+                                anyhow::bail!("Amount must be greater than 0");
+                            }
+                            let result = service.send_token(resolved.address, &meta.coin_type, amount).await?;
+                            Ok(result.digest)
+                        },
+                        |r: Result<String, anyhow::Error>| {
+                            Message::SendCompleted(r.map_err(|e| e.to_string()))
+                        },
+                    )
+                } else {
+                    let amount = match parse_iota_amount(&self.amount) {
+                        Ok(0) => {
+                            self.error_message = Some("Amount must be greater than 0".into());
+                            return Task::none();
+                        }
+                        Ok(a) => a,
+                        Err(e) => {
+                            self.error_message = Some(e.to_string());
+                            return Task::none();
+                        }
+                    };
+                    let service = info.service.clone();
+                    self.loading += 1;
+                    self.error_message = None;
+
+                    Task::perform(
+                        async move {
+                            let resolved = service.resolve_recipient(&recipient).await?;
+                            let result = service.send(resolved.address, amount).await?;
+                            Ok(result.digest)
+                        },
+                        |r: Result<String, anyhow::Error>| {
+                            Message::SendCompleted(r.map_err(|e| e.to_string()))
+                        },
+                    )
+                }
             }
 
             Message::SendCompleted(result) => {
@@ -603,6 +656,9 @@ impl App {
                         self.epoch_deltas.clear();
                         self.balance_chart.clear();
                         self.stakes.clear();
+                        self.token_balances.clear();
+                        self.token_meta.clear();
+                        self.selected_token = None;
                         return self.refresh_dashboard();
                     }
                     Err(e) => self.error_message = Some(e),
@@ -616,6 +672,15 @@ impl App {
                     custom_url: None,
                 };
                 self.network_config = config.clone();
+                self.balance = None;
+                self.transactions.clear();
+                self.account_transactions.clear();
+                self.epoch_deltas.clear();
+                self.balance_chart.clear();
+                self.stakes.clear();
+                self.token_balances.clear();
+                self.token_meta.clear();
+                self.selected_token = None;
                 if let Some(info) = &mut self.wallet_info {
                     info.network_config = config.clone();
                     info.is_mainnet = network == Network::Mainnet;
@@ -709,6 +774,7 @@ impl App {
         self.amount.clear();
         self.resolved_recipient = None;
         self.resolved_validator = None;
+        self.selected_token = None;
         self.error_message = None;
         self.success_message = None;
         self.status_message = None;
@@ -760,11 +826,12 @@ impl App {
         let Some(info) = &self.wallet_info else {
             return Task::none();
         };
-        self.loading += 2;
+        self.loading += 3;
         self.history_page = 0;
 
         let svc1 = info.service.clone();
         let svc2 = info.service.clone();
+        let svc3 = info.service.clone();
         let network_name = info.service.network_name().to_string();
         let address_str = info.address.to_string();
 
@@ -787,6 +854,23 @@ impl App {
                 },
                 |r: Result<(Vec<TransactionSummary>, u32, Vec<(u64, i64)>), anyhow::Error>| {
                     Message::TransactionsLoaded(r.map_err(|e| e.to_string()))
+                },
+            ),
+            Task::perform(
+                async move {
+                    let balances = svc3.get_token_balances().await?;
+                    let mut meta = Vec::new();
+                    for b in &balances {
+                        if b.coin_type != "0x2::iota::IOTA" {
+                            if let Ok(m) = svc3.resolve_coin_type(&b.coin_type).await {
+                                meta.push(m);
+                            }
+                        }
+                    }
+                    Ok((balances, meta))
+                },
+                |r: Result<(Vec<TokenBalance>, Vec<CoinMeta>), anyhow::Error>| {
+                    Message::TokenBalancesLoaded(r.map_err(|e| e.to_string()))
                 },
             ),
         ])

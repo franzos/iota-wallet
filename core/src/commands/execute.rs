@@ -40,59 +40,129 @@ impl Command {
                 }
             }
 
-            Command::Transfer { recipient, amount } => {
+            Command::Transfer { recipient, amount, token, raw_amount } => {
                 let res = match resolved {
                     Some(r) => r.clone(),
                     None => service.resolve_recipient(recipient).await?,
                 };
-                let result = service.send(res.address, *amount).await?;
 
-                if json_output {
-                    Ok(serde_json::json!({
-                        "digest": result.digest,
-                        "status": result.status,
-                        "amount_nanos": amount,
-                        "amount_iota": display::nanos_to_iota(*amount),
-                        "recipient": res.address.to_string(),
-                        "name": res.name,
-                    })
-                    .to_string())
+                if let Some(token_alias) = token {
+                    // Token transfer — parse raw_amount with the token's actual decimals
+                    let meta = service.resolve_coin_type(token_alias).await?;
+                    let parsed = display::parse_token_amount(raw_amount, meta.decimals)?;
+                    let token_amount = u64::try_from(parsed)
+                        .map_err(|_| anyhow::anyhow!("Amount too large for transfer"))?;
+                    if token_amount == 0 {
+                        bail!("Cannot send 0 {}.", meta.symbol);
+                    }
+                    let result = service.send_token(res.address, &meta.coin_type, token_amount).await?;
+                    let display_amount = display::format_balance_with_symbol(
+                        token_amount as u128, meta.decimals, &meta.symbol,
+                    );
+
+                    if json_output {
+                        Ok(serde_json::json!({
+                            "digest": result.digest,
+                            "status": result.status,
+                            "amount": token_amount,
+                            "amount_display": display_amount,
+                            "coin_type": meta.coin_type,
+                            "symbol": meta.symbol,
+                            "recipient": res.address.to_string(),
+                            "name": res.name,
+                        })
+                        .to_string())
+                    } else {
+                        Ok(format!(
+                            "Transaction sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
+                            result.digest,
+                            result.status,
+                            display_amount,
+                            res,
+                        ))
+                    }
                 } else {
-                    Ok(format!(
-                        "Transaction sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
-                        result.digest,
-                        result.status,
-                        display::format_balance(*amount),
-                        res,
-                    ))
+                    // IOTA transfer (unchanged)
+                    let result = service.send(res.address, *amount).await?;
+
+                    if json_output {
+                        Ok(serde_json::json!({
+                            "digest": result.digest,
+                            "status": result.status,
+                            "amount_nanos": amount,
+                            "amount_iota": display::nanos_to_iota(*amount),
+                            "recipient": res.address.to_string(),
+                            "name": res.name,
+                        })
+                        .to_string())
+                    } else {
+                        Ok(format!(
+                            "Transaction sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
+                            result.digest,
+                            result.status,
+                            display::format_balance(*amount),
+                            res,
+                        ))
+                    }
                 }
             }
 
-            Command::SweepAll { recipient } => {
+            Command::SweepAll { recipient, token } => {
                 let res = match resolved {
                     Some(r) => r.clone(),
                     None => service.resolve_recipient(recipient).await?,
                 };
-                let (result, amount) = service.sweep_all(res.address).await?;
 
-                if json_output {
-                    Ok(serde_json::json!({
-                        "digest": result.digest,
-                        "status": result.status,
-                        "amount_nanos": amount,
-                        "amount_iota": display::nanos_to_iota(amount),
-                        "recipient": res.address.to_string(),
-                        "name": res.name,
-                    })
-                    .to_string())
+                if let Some(token_alias) = token {
+                    let meta = service.resolve_coin_type(token_alias).await?;
+                    let (result, total) = service.sweep_all_token(res.address, &meta.coin_type).await?;
+                    let display_amount = display::format_balance_with_symbol(
+                        total, meta.decimals, &meta.symbol,
+                    );
+
+                    if json_output {
+                        Ok(serde_json::json!({
+                            "digest": result.digest,
+                            "status": result.status,
+                            "amount": total.to_string(),
+                            "amount_display": display_amount,
+                            "coin_type": meta.coin_type,
+                            "symbol": meta.symbol,
+                            "recipient": res.address.to_string(),
+                            "name": res.name,
+                        })
+                        .to_string())
+                    } else {
+                        Ok(format!(
+                            "Sweep sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
+                            result.digest,
+                            result.status,
+                            display_amount,
+                            res,
+                        ))
+                    }
                 } else {
-                    Ok(format!(
-                        "Sweep sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
-                        result.digest,
-                        result.status,
-                        display::format_balance(amount),
-                        res,
-                    ))
+                    let (result, amount) = service.sweep_all(res.address).await?;
+
+                    if json_output {
+                        Ok(serde_json::json!({
+                            "digest": result.digest,
+                            "status": result.status,
+                            "amount_nanos": amount,
+                            "amount_iota": display::nanos_to_iota(amount),
+                            "recipient": res.address.to_string(),
+                            "name": res.name,
+                        })
+                        .to_string())
+                    } else {
+                        Ok(format!(
+                            "Sweep sent!\n  Digest: {}\n  Status: {}\n  Amount: {} -> {}",
+                            result.digest,
+                            result.status,
+                            display::format_balance(amount),
+                            res,
+                        ))
+                    }
                 }
             }
 
@@ -214,20 +284,38 @@ impl Command {
 
             Command::Tokens => {
                 let balances = service.get_token_balances().await?;
+
+                // Fetch metadata for non-IOTA tokens (best-effort)
+                let mut meta = Vec::new();
+                for b in &balances {
+                    if b.coin_type != "0x2::iota::IOTA" {
+                        if let Ok(m) = service.resolve_coin_type(&b.coin_type).await {
+                            meta.push(m);
+                        }
+                    }
+                }
+
                 if json_output {
                     let json_balances: Vec<serde_json::Value> = balances
                         .iter()
                         .map(|b| {
-                            serde_json::json!({
+                            let coin_meta = meta.iter().find(|m| m.coin_type == b.coin_type);
+                            let mut obj = serde_json::json!({
                                 "coin_type": b.coin_type,
                                 "coin_object_count": b.coin_object_count,
                                 "total_balance": b.total_balance.to_string(),
-                            })
+                            });
+                            if let Some(m) = coin_meta {
+                                obj["symbol"] = serde_json::json!(m.symbol);
+                                obj["decimals"] = serde_json::json!(m.decimals);
+                                obj["name"] = serde_json::json!(m.name);
+                            }
+                            obj
                         })
                         .collect();
                     Ok(serde_json::to_string_pretty(&json_balances)?)
                 } else {
-                    Ok(display::format_token_balances(&balances))
+                    Ok(display::format_token_balances_with_meta(&balances, &meta))
                 }
             }
 

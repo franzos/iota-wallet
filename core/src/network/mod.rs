@@ -170,6 +170,49 @@ impl NetworkClient {
         Ok(balances)
     }
 
+    /// Query coin metadata for a given coin type string (e.g. "0x2::iota::IOTA").
+    pub async fn coin_metadata(&self, coin_type: &str) -> Result<CoinMeta> {
+        let meta = self
+            .client
+            .coin_metadata(coin_type)
+            .await
+            .context("Failed to query coin metadata")?
+            .ok_or_else(|| anyhow::anyhow!("No metadata found for coin type '{coin_type}'"))?;
+
+        let decimals = meta.decimals.unwrap_or(0);
+        if decimals > 38 {
+            bail!("Unsupported decimals value ({decimals}) for coin type '{coin_type}'. Maximum supported is 38.");
+        }
+
+        Ok(CoinMeta {
+            coin_type: coin_type.to_string(),
+            symbol: meta.symbol.unwrap_or_default(),
+            decimals: decimals as u8,
+            name: meta.name.unwrap_or_default(),
+        })
+    }
+
+    /// Query coin object IDs owned by an address for a specific coin type.
+    pub async fn get_coins(
+        &self,
+        address: &Address,
+        coin_type: &str,
+    ) -> Result<Vec<iota_sdk::types::ObjectId>> {
+        use iota_sdk::graphql_client::pagination::PaginationFilter;
+        use iota_sdk::types::StructTag;
+
+        let struct_tag: StructTag = coin_type.parse()
+            .map_err(|e| anyhow::anyhow!("Invalid coin type '{coin_type}': {e}"))?;
+
+        let page = self
+            .client
+            .coins(*address, struct_tag, PaginationFilter::default())
+            .await
+            .context("Failed to query coins")?;
+
+        Ok(page.data().iter().map(|c| *c.id()).collect())
+    }
+
     /// Query network status: current epoch, gas price, and node URL.
     pub async fn status(&self) -> Result<NetworkStatus> {
         let epoch = self

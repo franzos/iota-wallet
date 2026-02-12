@@ -17,10 +17,17 @@ pub enum Command {
     Balance,
     /// Show wallet address
     Address,
-    /// Transfer IOTA to a recipient: transfer <address|name.iota> <amount>
-    Transfer { recipient: Recipient, amount: u64 },
-    /// Sweep entire balance minus gas: sweep_all <address|name.iota>
-    SweepAll { recipient: Recipient },
+    /// Transfer IOTA or tokens: transfer <address|name.iota> <amount> [token]
+    /// When `token` is Some, `amount` is 0 and `raw_amount` holds the user input
+    /// (parsed with the token's actual decimals at execute time).
+    Transfer {
+        recipient: Recipient,
+        amount: u64,
+        token: Option<String>,
+        raw_amount: String,
+    },
+    /// Sweep entire balance: sweep_all <address|name.iota> [token]
+    SweepAll { recipient: Recipient, token: Option<String> },
     /// Show transaction history: show_transfers [in|out|all]
     ShowTransfers { filter: TransactionFilter },
     /// Look up a transaction by digest: show_transfer <digest>
@@ -54,7 +61,7 @@ impl Command {
     pub fn recipient(&self) -> Option<&Recipient> {
         match self {
             Command::Transfer { recipient, .. } => Some(recipient),
-            Command::SweepAll { recipient } => Some(recipient),
+            Command::SweepAll { recipient, .. } => Some(recipient),
             Command::Stake { validator, .. } => Some(validator),
             _ => None,
         }
@@ -74,15 +81,20 @@ impl Command {
         };
 
         match self {
-            Command::Transfer { recipient, amount } => Some(format!(
-                "Send {} to {}?",
-                display::format_balance(*amount),
-                display_recipient(recipient),
-            )),
-            Command::SweepAll { recipient } => Some(format!(
-                "Sweep entire balance to {}?",
-                display_recipient(recipient),
-            )),
+            Command::Transfer { recipient, amount, token, raw_amount } => {
+                let amount_str = match token {
+                    Some(t) => format!("{raw_amount} {t}"),
+                    None => display::format_balance(*amount),
+                };
+                Some(format!("Send {} to {}?", amount_str, display_recipient(recipient)))
+            }
+            Command::SweepAll { recipient, token } => {
+                let what = match token {
+                    Some(t) => format!("all {t}"),
+                    None => "entire balance".to_string(),
+                };
+                Some(format!("Sweep {what} to {}?", display_recipient(recipient)))
+            }
             Command::Stake { validator, amount } => Some(format!(
                 "Stake {} to validator {}?",
                 display::format_balance(*amount),
@@ -114,6 +126,8 @@ mod tests {
         let cmd = Command::Transfer {
             recipient: Recipient::Address(Address::ZERO),
             amount: 1_000_000_000,
+            token: None,
+            raw_amount: "1".into(),
         };
         let prompt = cmd.confirmation_prompt(None).unwrap();
         assert!(prompt.contains("1.000000000 IOTA"));
@@ -123,6 +137,7 @@ mod tests {
     fn sweep_all_requires_confirmation() {
         let cmd = Command::SweepAll {
             recipient: Recipient::Address(Address::ZERO),
+            token: None,
         };
         assert!(cmd.confirmation_prompt(None).is_some());
     }
@@ -139,6 +154,8 @@ mod tests {
         let cmd = Command::Transfer {
             recipient: Recipient::Name("franz.iota".into()),
             amount: 1_000_000_000,
+            token: None,
+            raw_amount: "1".into(),
         };
         let resolved = ResolvedRecipient {
             address: Address::ZERO,

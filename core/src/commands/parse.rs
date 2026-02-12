@@ -27,37 +27,57 @@ impl Command {
             "transfer" | "send" => {
                 let addr_str = arg1.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing recipient. Usage: transfer <address|name.iota> <amount>"
+                        "Missing recipient. Usage: transfer <address|name.iota> <amount> [token]"
                     )
                 })?;
-                let amount_str = arg2.ok_or_else(|| {
+                let rest = arg2.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing amount. Usage: transfer <address|name.iota> <amount>"
+                        "Missing amount. Usage: transfer <address|name.iota> <amount> [token]"
                     )
                 })?;
 
                 let recipient = Recipient::parse(addr_str)?;
 
-                let amount = display::parse_iota_amount(amount_str)
-                    .with_context(|| format!("Invalid amount '{amount_str}'"))?;
+                // rest may be "50 usdt" or just "1.5"
+                let (amount_str, token) = match rest.split_once(char::is_whitespace) {
+                    Some((amt, tok)) => (amt.trim(), Some(tok.trim().to_string())),
+                    None => (rest, None),
+                };
 
-                if amount == 0 {
-                    bail!("Cannot send 0 IOTA.");
+                let raw_amount = amount_str.to_string();
+
+                if token.is_some() {
+                    // Defer full parsing to execute time (need token's decimals).
+                    // Basic validation: must look like a number (digits and at most one dot).
+                    let valid = !amount_str.is_empty()
+                        && amount_str.chars().all(|c| c.is_ascii_digit() || c == '.')
+                        && amount_str.matches('.').count() <= 1
+                        && amount_str.chars().any(|c| c.is_ascii_digit());
+                    if !valid {
+                        bail!("Invalid amount '{amount_str}'");
+                    }
+                    Ok(Command::Transfer { recipient, amount: 0, token, raw_amount })
+                } else {
+                    let amount = display::parse_iota_amount(amount_str)
+                        .with_context(|| format!("Invalid amount '{amount_str}'"))?;
+                    if amount == 0 {
+                        bail!("Cannot send 0 IOTA.");
+                    }
+                    Ok(Command::Transfer { recipient, amount, token, raw_amount })
                 }
-
-                Ok(Command::Transfer { recipient, amount })
             }
 
             "sweep_all" | "sweep" => {
                 let addr_str = arg1.ok_or_else(|| {
                     anyhow::anyhow!(
-                        "Missing recipient. Usage: sweep_all <address|name.iota>"
+                        "Missing recipient. Usage: sweep_all <address|name.iota> [token]"
                     )
                 })?;
 
                 let recipient = Recipient::parse(addr_str)?;
+                let token = arg2.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
 
-                Ok(Command::SweepAll { recipient })
+                Ok(Command::SweepAll { recipient, token })
             }
 
             "show_transfers" | "transfers" | "txs" => {
@@ -176,12 +196,13 @@ mod tests {
         )
         .unwrap();
         match cmd {
-            Command::Transfer { recipient, amount } => {
+            Command::Transfer { recipient, amount, token, .. } => {
                 assert_eq!(
                     format!("{recipient}"),
                     "0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900"
                 );
                 assert_eq!(amount, 1_500_000_000);
+                assert_eq!(token, None);
             }
             other => panic!("expected Transfer, got {other:?}"),
         }
@@ -408,11 +429,39 @@ mod tests {
     fn parse_transfer_iota_name() {
         let cmd = Command::parse("transfer franz.iota 1.5").unwrap();
         match cmd {
-            Command::Transfer { recipient, amount } => {
+            Command::Transfer { recipient, amount, token, .. } => {
                 assert_eq!(recipient, Recipient::Name("franz.iota".into()));
                 assert_eq!(amount, 1_500_000_000);
+                assert_eq!(token, None);
             }
             other => panic!("expected Transfer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_transfer_with_token() {
+        let cmd = Command::parse("transfer franz.iota 50 usdt").unwrap();
+        match cmd {
+            Command::Transfer { recipient, amount, token, raw_amount } => {
+                assert_eq!(recipient, Recipient::Name("franz.iota".into()));
+                // amount is 0 — deferred to execute time with correct decimals
+                assert_eq!(amount, 0);
+                assert_eq!(raw_amount, "50");
+                assert_eq!(token, Some("usdt".to_string()));
+            }
+            other => panic!("expected Transfer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_sweep_all_with_token() {
+        let cmd = Command::parse("sweep_all franz.iota usdt").unwrap();
+        match cmd {
+            Command::SweepAll { recipient, token } => {
+                assert_eq!(recipient, Recipient::Name("franz.iota".into()));
+                assert_eq!(token, Some("usdt".to_string()));
+            }
+            other => panic!("expected SweepAll, got {other:?}"),
         }
     }
 
@@ -420,7 +469,7 @@ mod tests {
     fn parse_sweep_iota_name() {
         let cmd = Command::parse("sweep_all franz.iota").unwrap();
         match cmd {
-            Command::SweepAll { recipient } => {
+            Command::SweepAll { recipient, .. } => {
                 assert_eq!(recipient, Recipient::Name("franz.iota".into()));
             }
             other => panic!("expected SweepAll, got {other:?}"),
@@ -437,5 +486,47 @@ mod tests {
             }
             other => panic!("expected Stake, got {other:?}"),
         }
+    }
+
+    // -- Token amount validation edge cases --
+
+    const TEST_ADDR: &str =
+        "0x0000a4984bd495d4346fa208ddff4f5d5e5ad48c21dec631ddebc99809f16900";
+
+    #[test]
+    fn transfer_token_bare_dot_rejected() {
+        let input = format!("transfer {TEST_ADDR} . usdt");
+        assert!(Command::parse(&input).is_err(), "bare dot should be rejected");
+    }
+
+    #[test]
+    fn transfer_token_nan_rejected() {
+        let input = format!("transfer {TEST_ADDR} NaN usdt");
+        assert!(Command::parse(&input).is_err(), "NaN should be rejected");
+    }
+
+    #[test]
+    fn transfer_token_inf_rejected() {
+        let input = format!("transfer {TEST_ADDR} inf usdt");
+        assert!(Command::parse(&input).is_err(), "inf should be rejected");
+    }
+
+    #[test]
+    fn transfer_token_negative_rejected() {
+        let input = format!("transfer {TEST_ADDR} -5 usdt");
+        assert!(Command::parse(&input).is_err(), "negative amount should be rejected");
+    }
+
+    #[test]
+    fn transfer_token_scientific_notation_rejected() {
+        let input = format!("transfer {TEST_ADDR} 1e10 usdt");
+        assert!(Command::parse(&input).is_err(), "scientific notation should be rejected");
+    }
+
+    #[test]
+    fn transfer_token_leading_dot_accepted() {
+        let input = format!("transfer {TEST_ADDR} .5 usdt");
+        let result = Command::parse(&input);
+        assert!(result.is_ok(), ".5 should pass character-class validation");
     }
 }

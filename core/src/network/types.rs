@@ -43,6 +43,14 @@ pub struct TokenBalance {
     pub total_balance: u128,
 }
 
+#[derive(Debug, Clone)]
+pub struct CoinMeta {
+    pub coin_type: String,
+    pub symbol: String,
+    pub decimals: u8,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StakeStatus {
     Active,

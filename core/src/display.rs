@@ -5,17 +5,81 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::network::{NetworkStatus, StakeStatus, StakedIotaSummary, TokenBalance, TransactionDetailsSummary, TransactionDirection, TransactionSummary};
 
-const NANOS_PER_IOTA: u64 = 1_000_000_000;
+/// Format a raw token amount using the given number of decimal places.
+/// E.g. format_amount(1_500_000, 6) -> "1.500000"
+#[must_use]
+pub fn format_amount(value: u128, decimals: u8) -> String {
+    if decimals == 0 {
+        return value.to_string();
+    }
+    let divisor = 10u128.pow(decimals as u32);
+    let whole = value / divisor;
+    let frac = value % divisor;
+    format!("{whole}.{frac:0>width$}", width = decimals as usize)
+}
+
+/// Format a raw token amount with its symbol appended.
+#[must_use]
+pub fn format_balance_with_symbol(value: u128, decimals: u8, symbol: &str) -> String {
+    format!("{} {symbol}", format_amount(value, decimals))
+}
+
+/// Parse a human-readable token amount into its smallest unit for the given decimals.
+/// E.g. parse_token_amount("1.5", 6) -> Ok(1_500_000)
+pub fn parse_token_amount(input: &str, decimals: u8) -> Result<u128> {
+    let input = input.trim();
+    if input.is_empty() {
+        bail!("Amount cannot be empty");
+    }
+    if input.starts_with('-') {
+        bail!("Amount must be positive");
+    }
+
+    let dec = decimals as usize;
+    let multiplier = 10u128.pow(decimals as u32);
+
+    // Bare integer — treat as human-readable units
+    if let Ok(whole) = input.parse::<u128>() {
+        return whole.checked_mul(multiplier).ok_or_else(|| anyhow!("Amount too large"));
+    }
+
+    let parts: Vec<&str> = input.split('.').collect();
+    if parts.len() > 2 {
+        bail!("Invalid amount format.");
+    }
+
+    let whole: u128 = parts[0]
+        .parse()
+        .map_err(|_| anyhow!("Invalid whole part: '{}'", parts[0]))?;
+
+    let frac_units = if parts.len() == 2 {
+        let frac_str = parts[1];
+        if frac_str.is_empty() {
+            0u128
+        } else if frac_str.len() > dec && dec > 0 {
+            bail!("Too many decimal places. This token supports up to {dec}.");
+        } else if dec == 0 {
+            bail!("This token has no decimal places.");
+        } else {
+            let padded = format!("{:0<width$}", frac_str, width = dec);
+            padded.parse::<u128>()
+                .map_err(|_| anyhow!("Invalid fractional part: '{frac_str}'"))?
+        }
+    } else {
+        0
+    };
+
+    whole
+        .checked_mul(multiplier)
+        .and_then(|w| w.checked_add(frac_units))
+        .ok_or_else(|| anyhow!("Amount too large"))
+}
 
 /// Convert nanos to a human-readable IOTA string.
 /// Examples: 1_500_000_000 -> "1.500000000", 0 -> "0.000000000"
 #[must_use]
 pub fn nanos_to_iota(nanos: impl Into<u128>) -> String {
-    let nanos = nanos.into();
-    let divisor = NANOS_PER_IOTA as u128;
-    let whole = nanos / divisor;
-    let frac = nanos % divisor;
-    format!("{whole}.{frac:09}")
+    format_amount(nanos.into(), 9)
 }
 
 /// Format a balance for display.
@@ -27,59 +91,8 @@ pub fn format_balance(nanos: impl Into<u128>) -> String {
 /// Parse a human-readable IOTA amount string into nanos.
 /// Accepts: "1.5" -> 1_500_000_000, "1" -> 1_000_000_000, "0.001" -> 1_000_000
 pub fn parse_iota_amount(input: &str) -> Result<u64> {
-    let input = input.trim();
-
-    if input.is_empty() {
-        bail!("Amount cannot be empty");
-    }
-
-    if input.starts_with('-') {
-        bail!("Amount must be positive");
-    }
-
-    // Check if it's purely numeric (nanos)
-    if let Ok(nanos) = input.parse::<u64>() {
-        // If the number is very large, assume it's nanos. If small, assume IOTA.
-        // To avoid ambiguity, we always treat bare integers as IOTA.
-        return nanos.checked_mul(NANOS_PER_IOTA).ok_or_else(|| {
-            anyhow!("Amount too large")
-        });
-    }
-
-    // Try parsing as decimal IOTA
-    let parts: Vec<&str> = input.split('.').collect();
-    if parts.len() > 2 {
-        bail!("Invalid amount format. Use IOTA units like '1.5' or '0.001'.");
-    }
-
-    let whole: u64 = parts[0]
-        .parse()
-        .map_err(|_| anyhow!("Invalid whole part: '{}'", parts[0]))?;
-
-    let frac_nanos = if parts.len() == 2 {
-        let frac_str = parts[1];
-        if frac_str.is_empty() {
-            // Trailing dot: "1." is treated as "1.0"
-            0
-        } else if frac_str.len() > 9 {
-            bail!("Too many decimal places. IOTA supports up to 9.");
-        } else {
-            // Pad to 9 digits
-            let padded = format!("{:0<9}", frac_str);
-            padded
-                .parse::<u64>()
-                .map_err(|_| anyhow!("Invalid fractional part: '{frac_str}'"))?
-        }
-    } else {
-        0
-    };
-
-    let total = whole
-        .checked_mul(NANOS_PER_IOTA)
-        .and_then(|w| w.checked_add(frac_nanos))
-        .ok_or_else(|| anyhow!("Amount too large"))?;
-
-    Ok(total)
+    let raw = parse_token_amount(input, 9)?;
+    u64::try_from(raw).map_err(|_| anyhow!("Amount too large"))
 }
 
 /// Format a list of transactions for display.
@@ -170,27 +183,45 @@ pub fn format_transaction_details(tx: &TransactionDetailsSummary) -> String {
     lines.join("\n")
 }
 
-/// Format token balances for display.
+/// Format token balances for display. When `CoinMeta` is available for a
+/// token, uses the symbol and correct decimal formatting.
 #[must_use]
 pub fn format_token_balances(balances: &[TokenBalance]) -> String {
+    format_token_balances_with_meta(balances, &[])
+}
+
+/// Format token balances with optional metadata for proper symbol/decimal display.
+#[must_use]
+pub fn format_token_balances_with_meta(
+    balances: &[TokenBalance],
+    meta: &[crate::network::CoinMeta],
+) -> String {
     if balances.is_empty() {
         return "No token balances found.".to_string();
     }
 
     let mut lines = Vec::with_capacity(balances.len());
     for b in balances {
-        // For native IOTA (9 decimals), show in IOTA units; for others show raw amount
-        let amount = if b.coin_type == "0x2::iota::IOTA" {
-            format!("{} IOTA", nanos_to_iota(b.total_balance))
-        } else {
-            b.total_balance.to_string()
-        };
         let objects = if b.coin_object_count == 1 {
             "1 object".to_string()
         } else {
             format!("{} objects", b.coin_object_count)
         };
-        lines.push(format!("  {}  {}  ({})", b.coin_type, amount, objects));
+
+        // Try to find metadata for this coin type
+        let coin_meta = meta.iter().find(|m| m.coin_type == b.coin_type);
+
+        let (label, amount) = if b.coin_type == "0x2::iota::IOTA" {
+            ("IOTA".to_string(), format_balance_with_symbol(b.total_balance, 9, "IOTA"))
+        } else if let Some(m) = coin_meta {
+            (m.symbol.clone(), format_balance_with_symbol(b.total_balance, m.decimals, &m.symbol))
+        } else {
+            // Fallback: show raw coin type and raw amount
+            let short = b.coin_type.split("::").last().unwrap_or(&b.coin_type).to_string();
+            (short, b.total_balance.to_string())
+        };
+
+        lines.push(format!("  {:<8} {}  ({})", label, amount, objects));
     }
     lines.join("\n")
 }
@@ -403,5 +434,158 @@ mod tests {
         ];
         let output = format_transactions(&txs);
         assert!(output.contains("-"));
+    }
+
+    // -- format_amount multi-token tests --
+
+    #[test]
+    fn format_amount_usdt_like() {
+        assert_eq!(format_amount(1_500_000, 6), "1.500000");
+    }
+
+    #[test]
+    fn format_amount_zero_with_decimals() {
+        assert_eq!(format_amount(0, 6), "0.000000");
+    }
+
+    #[test]
+    fn format_amount_zero_decimals() {
+        assert_eq!(format_amount(100, 0), "100");
+    }
+
+    #[test]
+    fn format_amount_18_decimals() {
+        assert_eq!(
+            format_amount(1_000_000_000_000_000_000, 18),
+            "1.000000000000000000"
+        );
+    }
+
+    #[test]
+    fn format_amount_value_smaller_than_one_unit() {
+        assert_eq!(format_amount(123, 8), "0.00000123");
+    }
+
+    #[test]
+    fn format_amount_u128_max_does_not_panic() {
+        let result = format_amount(u128::MAX, 9);
+        assert!(!result.is_empty());
+        assert!(result.contains('.'));
+    }
+
+    // -- format_balance_with_symbol tests --
+
+    #[test]
+    fn format_balance_with_symbol_usdt() {
+        assert_eq!(
+            format_balance_with_symbol(1_500_000, 6, "USDT"),
+            "1.500000 USDT"
+        );
+    }
+
+    #[test]
+    fn format_balance_with_symbol_zero_decimals() {
+        assert_eq!(format_balance_with_symbol(0, 0, "NFT"), "0 NFT");
+    }
+
+    // -- parse_token_amount multi-token tests --
+
+    #[test]
+    fn parse_token_amount_decimal_6() {
+        assert_eq!(parse_token_amount("1.5", 6).unwrap(), 1_500_000);
+    }
+
+    #[test]
+    fn parse_token_amount_whole_with_decimals() {
+        assert_eq!(parse_token_amount("1", 6).unwrap(), 1_000_000);
+    }
+
+    #[test]
+    fn parse_token_amount_smallest_unit() {
+        assert_eq!(parse_token_amount("0.000001", 6).unwrap(), 1);
+    }
+
+    #[test]
+    fn parse_token_amount_zero_decimals_integer() {
+        assert_eq!(parse_token_amount("100", 0).unwrap(), 100);
+    }
+
+    #[test]
+    fn parse_token_amount_zero_decimals_with_dot_fails() {
+        assert!(parse_token_amount("1.0", 0).is_err());
+    }
+
+    #[test]
+    fn parse_token_amount_18_decimals() {
+        assert_eq!(
+            parse_token_amount("1.5", 18).unwrap(),
+            1_500_000_000_000_000_000
+        );
+    }
+
+    #[test]
+    fn parse_token_amount_too_many_frac_digits() {
+        assert!(parse_token_amount("0.0000001", 6).is_err());
+    }
+
+    #[test]
+    fn parse_token_amount_trailing_dot() {
+        assert_eq!(parse_token_amount("1.", 6).unwrap(), 1_000_000);
+    }
+
+    #[test]
+    fn parse_token_amount_empty_fails() {
+        assert!(parse_token_amount("", 6).is_err());
+    }
+
+    #[test]
+    fn parse_token_amount_negative_fails() {
+        assert!(parse_token_amount("-5", 6).is_err());
+    }
+
+    #[test]
+    fn parse_token_amount_max_decimals_38() {
+        let result = parse_token_amount("1.5", 38);
+        assert!(result.is_ok(), "decimals=38 should be supported");
+    }
+
+    // -- format_token_balances_with_meta tests --
+
+    #[test]
+    fn format_token_balances_with_meta_empty() {
+        let output = format_token_balances_with_meta(&[], &[]);
+        assert_eq!(output, "No token balances found.");
+    }
+
+    #[test]
+    fn format_token_balances_with_meta_single_with_metadata() {
+        let balances = vec![TokenBalance {
+            coin_type: "0xabc::usdt::USDT".to_string(),
+            coin_object_count: 2,
+            total_balance: 1_500_000,
+        }];
+        let meta = vec![crate::network::CoinMeta {
+            coin_type: "0xabc::usdt::USDT".to_string(),
+            symbol: "USDT".to_string(),
+            decimals: 6,
+            name: "Tether USD".to_string(),
+        }];
+        let output = format_token_balances_with_meta(&balances, &meta);
+        assert!(output.contains("USDT"), "should show symbol");
+        assert!(output.contains("1.500000"), "should show formatted amount");
+        assert!(output.contains("2 objects"), "should show object count");
+    }
+
+    #[test]
+    fn format_token_balances_with_meta_no_metadata_fallback() {
+        let balances = vec![TokenBalance {
+            coin_type: "0xabc::mystery::MYSTERY".to_string(),
+            coin_object_count: 1,
+            total_balance: 42,
+        }];
+        let output = format_token_balances_with_meta(&balances, &[]);
+        // Fallback shows last segment of coin type and raw amount
+        assert!(output.contains("MYSTERY"), "should show coin type suffix");
+        assert!(output.contains("42"), "should show raw amount");
     }
 }

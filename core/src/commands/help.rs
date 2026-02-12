@@ -8,10 +8,10 @@ pub fn help_text(command: Option<&str>) -> String {
             "address\n  Show the wallet's primary address.\n  Alias: addr".to_string()
         }
         Some("transfer") | Some("send") => {
-            "transfer <address|name.iota> <amount>\n  Send IOTA to an address or .iota name.\n  Amount is in IOTA (e.g. '1.5' for 1.5 IOTA).\n  Alias: send".to_string()
+            "transfer <address|name.iota> <amount> [token]\n  Send IOTA or tokens to an address or .iota name.\n  Token can be a symbol (e.g. 'usdt') or full coin type.\n  Default: IOTA.\n  Examples: transfer franz.iota 1.5\n           transfer franz.iota 50 usdt\n  Alias: send".to_string()
         }
         Some("sweep_all") | Some("sweep") => {
-            "sweep_all <address|name.iota>\n  Send entire balance minus gas to an address or .iota name.\n  Alias: sweep".to_string()
+            "sweep_all <address|name.iota> [token]\n  Sweep entire balance to an address or .iota name.\n  Optionally specify a token to sweep (default: IOTA).\n  Examples: sweep_all franz.iota\n           sweep_all franz.iota usdt\n  Alias: sweep".to_string()
         }
         Some("show_transfers") | Some("transfers") | Some("txs") => {
             "show_transfers [in|out|all]\n  Show transaction history.\n  Filter: 'in' (received), 'out' (sent), 'all' (default).\n  Aliases: transfers, txs".to_string()
@@ -55,8 +55,8 @@ pub fn help_text(command: Option<&str>) -> String {
              \n\
              \x20 balance          Show wallet balance\n\
              \x20 address          Show wallet address\n\
-             \x20 transfer         Send IOTA to an address or .iota name\n\
-             \x20 sweep_all        Sweep entire balance to an address or .iota name\n\
+             \x20 transfer         Send IOTA or tokens to an address or .iota name\n\
+             \x20 sweep_all        Sweep entire balance (IOTA or token) to an address\n\
              \x20 show_transfers   Show transaction history\n\
              \x20 show_transfer    Look up a transaction by digest\n\
              \x20 stake            Stake IOTA to a validator\n\
