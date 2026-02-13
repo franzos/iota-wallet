@@ -15,6 +15,8 @@ pub(crate) enum Screen {
     Unlock,
     Create,
     Recover,
+    #[cfg(feature = "ledger")]
+    LedgerConnect,
     // Main phase (wallet loaded)
     Account,
     Send,
@@ -42,6 +44,7 @@ pub(crate) struct WalletInfo {
     pub(crate) network_config: NetworkConfig,
     pub(crate) service: Arc<WalletService>,
     pub(crate) is_mainnet: bool,
+    pub(crate) is_ledger: bool,
     pub(crate) account_index: u64,
     pub(crate) known_accounts: Vec<AccountRecord>,
     /// Explicitly configured package (env var), not the resolved testnet default.
@@ -61,6 +64,14 @@ impl fmt::Debug for WalletInfo {
 
 impl WalletInfo {
     pub(crate) fn from_wallet(wallet: &Wallet) -> anyhow::Result<Self> {
+        let signer: Arc<dyn iota_wallet_core::Signer> = Arc::new(wallet.signer()?);
+        Self::from_wallet_with_signer(wallet, signer)
+    }
+
+    pub(crate) fn from_wallet_with_signer(
+        wallet: &Wallet,
+        signer: Arc<dyn iota_wallet_core::Signer>,
+    ) -> anyhow::Result<Self> {
         let notarization_package = std::env::var("IOTA_NOTARIZATION_PKG_ID")
             .ok()
             .and_then(|s| ObjectId::from_hex(&s).ok());
@@ -68,7 +79,7 @@ impl WalletInfo {
         let network_client = NetworkClient::new(wallet.network_config(), false)?;
         let service = WalletService::new(
             network_client,
-            Arc::new(wallet.signer()),
+            signer,
             wallet.network_config().network.to_string(),
         )
         .with_notarization_package(notarization_package);
@@ -81,6 +92,7 @@ impl WalletInfo {
             network_config: wallet.network_config().clone(),
             service: Arc::new(service),
             is_mainnet: wallet.is_mainnet(),
+            is_ledger: wallet.is_ledger(),
             account_index: wallet.account_index(),
             known_accounts: wallet.known_accounts().to_vec(),
             notarization_package_config: notarization_package,

@@ -10,6 +10,10 @@ repository.workspace = true
 name = "iota-wallet-gui"
 path = "src/main.rs"
 
+[features]
+default = []
+ledger = ["iota-wallet-core/ledger"]
+
 [dependencies]
 iota-wallet-core = { path = "../core" }
 iced = { version = "0.14", features = ["tokio", "svg", "canvas", "qr_code"] }

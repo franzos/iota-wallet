@@ -4,7 +4,7 @@ use iota_sdk::graphql_client::pagination::PaginationFilter;
 use iota_sdk::transaction_builder::TransactionBuilder;
 use iota_sdk::transaction_builder::unresolved::Argument as UnresolvedArg;
 use iota_sdk::types::{
-    Address, Argument, Command as TxCommand, Input, ObjectId, StructTag, Transaction,
+    Address, Argument, Command as TxCommand, Input, Object, ObjectId, StructTag, Transaction,
     TransactionKind,
 };
 
@@ -13,6 +13,40 @@ use super::types::TransferResult;
 use crate::signer::Signer;
 
 impl NetworkClient {
+    /// Fetch all objects referenced by a transaction (gas payment + PTB inputs).
+    /// Used to provide coin metadata for Ledger clear signing.
+    async fn fetch_input_objects(&self, tx: &Transaction) -> Result<Vec<Object>> {
+        let Transaction::V1(v1) = tx;
+
+        let mut ids: Vec<(ObjectId, Option<u64>)> = Vec::new();
+
+        for obj_ref in &v1.gas_payment.objects {
+            ids.push((obj_ref.object_id, Some(obj_ref.version)));
+        }
+
+        if let Some(ptb) = v1.kind.as_programmable_transaction_opt() {
+            for input in &ptb.inputs {
+                match input {
+                    Input::ImmutableOrOwned(r) | Input::Receiving(r) => {
+                        ids.push((r.object_id, Some(r.version)));
+                    }
+                    Input::Shared { object_id, .. } => {
+                        ids.push((*object_id, None));
+                    }
+                    Input::Pure { .. } => {}
+                }
+            }
+        }
+
+        let mut objects = Vec::new();
+        for (id, version) in ids {
+            if let Some(obj) = self.client.object(id, version).await? {
+                objects.push(obj);
+            }
+        }
+        Ok(objects)
+    }
+
     /// Dry-run, sign, and execute a built transaction.
     pub(super) async fn sign_and_execute(
         &self,
@@ -28,11 +62,13 @@ impl NetworkClient {
             bail!("Transaction would fail: {err}");
         }
 
-        let signature = signer.sign_transaction(tx)?;
+        let objects = self.fetch_input_objects(tx).await
+            .context("Failed to fetch input objects for signing")?;
+        let signature = signer.sign_transaction(tx, &objects)?;
 
         let effects = self
             .client
-            .execute_tx(&[signature], tx, WaitForTx::Indexed)
+            .execute_tx(&[signature], tx, WaitForTx::Finalized)
             .await
             .context("Failed to execute transaction")?;
 

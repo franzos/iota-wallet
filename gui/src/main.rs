@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use iota_wallet_core::display::{format_balance, format_balance_with_symbol};
-use iota_wallet_core::list_wallets;
+use iota_wallet_core::{list_wallets, WalletEntry};
 use iota_wallet_core::network::{CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary};
 use iota_wallet_core::wallet::{Network, NetworkConfig};
 use iota_wallet_core::SignedMessage;
@@ -44,7 +44,7 @@ fn main() -> iced::Result {
 struct App {
     screen: Screen,
     wallet_dir: PathBuf,
-    wallet_names: Vec<String>,
+    wallet_entries: Vec<WalletEntry>,
     selected_wallet: Option<String>,
     wallet_info: Option<WalletInfo>,
     network_config: NetworkConfig,
@@ -206,12 +206,12 @@ impl App {
         let wallet_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".iota-wallet");
-        let wallet_names = list_wallets(&wallet_dir);
+        let wallet_entries = list_wallets(&wallet_dir);
 
         let app = Self {
             screen: Screen::WalletSelect,
             wallet_dir,
-            wallet_names,
+            wallet_entries,
             selected_wallet: None,
             wallet_info: None,
             network_config,
@@ -306,6 +306,17 @@ impl App {
                     Screen::Recover => self.view_recover(),
                     _ => unreachable!(),
                 };
+                container(
+                    container(content).padding(32).style(styles::card),
+                )
+                .center_x(Fill)
+                .center_y(Fill)
+                .padding(20)
+                .into()
+            }
+            #[cfg(feature = "ledger")]
+            Screen::LedgerConnect => {
+                let content = self.view_ledger_connect();
                 container(
                     container(content).padding(32).style(styles::card),
                 )
@@ -464,7 +475,12 @@ impl App {
 
         // -- Account toolbar --
         let account_idx = info.account_index;
-        let label = text(format!("Account {wallet_name} #{account_idx}")).size(12);
+        let acct_label = if info.is_ledger {
+            format!("Account {wallet_name} #{account_idx} (Ledger)")
+        } else {
+            format!("Account {wallet_name} #{account_idx}")
+        };
+        let label = text(acct_label).size(12);
         let divider = text("·").size(12).color(MUTED);
 
         let go_label = text("Jump to:").size(11).color(MUTED);

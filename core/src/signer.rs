@@ -5,18 +5,25 @@ use base64ct::{Base64, Encoding};
 use iota_sdk::crypto::ed25519::{Ed25519PrivateKey, Ed25519VerifyingKey};
 use iota_sdk::crypto::{IotaSigner, IotaVerifier};
 use iota_sdk::types::{
-    Address, PersonalMessage, SimpleSignature, Transaction, UserSignature,
+    Address, Object, PersonalMessage, SimpleSignature, Transaction, UserSignature,
 };
 
 pub trait Signer: Send + Sync {
     /// Sign a fully-built transaction and return the user signature.
-    fn sign_transaction(&self, tx: &Transaction) -> Result<UserSignature>;
+    /// `objects` provides coin/object metadata for Ledger clear signing.
+    fn sign_transaction(&self, tx: &Transaction, objects: &[Object]) -> Result<UserSignature>;
 
     /// Sign an arbitrary message and return the signed result.
     fn sign_message(&self, msg: &[u8]) -> Result<SignedMessage>;
 
     /// The on-chain address controlled by this signer.
     fn address(&self) -> &Address;
+
+    /// Show the address on a hardware device for user verification.
+    /// Only supported by hardware signers (e.g. Ledger).
+    fn verify_address(&self) -> Result<()> {
+        anyhow::bail!("Address verification is only supported on hardware devices.")
+    }
 }
 
 /// Result of signing an arbitrary message.
@@ -80,7 +87,7 @@ impl SoftwareSigner {
 }
 
 impl Signer for SoftwareSigner {
-    fn sign_transaction(&self, tx: &Transaction) -> Result<UserSignature> {
+    fn sign_transaction(&self, tx: &Transaction, _objects: &[Object]) -> Result<UserSignature> {
         self.private_key
             .sign_transaction(tx)
             .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {e}"))

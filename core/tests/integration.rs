@@ -114,7 +114,7 @@ async fn devnet_send_iota() {
     let amount = 100_000_000u64;
     let result = network
         .send_iota(
-            &sender.signer(),
+            &sender.signer().unwrap(),
             sender.address(),
             *recipient.address(),
             amount,
@@ -173,13 +173,13 @@ async fn wallet_create_recover_open_roundtrip() {
     // Create new wallet
     let wallet1 = Wallet::create_new(path1.clone(), password, testnet_config())
         .expect("failed to create wallet");
-    let mnemonic = wallet1.mnemonic().to_string();
+    let mnemonic = wallet1.mnemonic().unwrap().to_string();
     let address1 = *wallet1.address();
 
     // Open the same wallet from disk
     let wallet2 = Wallet::open(&path1, password).expect("failed to open wallet");
     assert_eq!(*wallet2.address(), address1, "reopened wallet should have same address");
-    assert_eq!(wallet2.mnemonic(), mnemonic, "reopened wallet should have same mnemonic");
+    assert_eq!(wallet2.mnemonic().unwrap(), mnemonic, "reopened wallet should have same mnemonic");
 
     // Recover from mnemonic to a different file
     let wallet3 = Wallet::recover_from_mnemonic(path2, password, &mnemonic, testnet_config())
@@ -206,7 +206,7 @@ async fn devnet_send_insufficient_balance() {
     let amount = 100_000_000u64; // 0.1 IOTA
 
     let result = network
-        .send_iota(&sender.signer(), sender.address(), recipient, amount)
+        .send_iota(&sender.signer().unwrap(), sender.address(), recipient, amount)
         .await;
 
     assert!(
@@ -247,7 +247,7 @@ async fn devnet_send_to_self() {
     let send_amount = 100_000_000u64; // 0.1 IOTA
     let result = network
         .send_iota(
-            &wallet.signer(),
+            &wallet.signer().unwrap(),
             wallet.address(),
             *wallet.address(),
             send_amount,
@@ -348,7 +348,7 @@ async fn devnet_transaction_history_after_send() {
     let amount = 100_000_000u64;
     network
         .send_iota(
-            &sender.signer(),
+            &sender.signer().unwrap(),
             sender.address(),
             *recipient.address(),
             amount,

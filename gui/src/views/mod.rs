@@ -1,6 +1,8 @@
 mod account;
 mod create;
 mod history;
+#[cfg(feature = "ledger")]
+mod ledger;
 mod nfts;
 mod open;
 mod receive;

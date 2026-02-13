@@ -44,6 +44,24 @@ iota-wallet --account 1 --cmd "address"
 
 On first launch you'll be prompted to create a new wallet or recover from a seed phrase. The wallet file is encrypted with your password (argon2id + AES-256-GCM).
 
+## Ledger
+
+Hardware wallet signing is supported via Ledger devices (Nano S, Nano S+, Nano X, Flex, Stax). The IOTA app must be installed and open on the device.
+
+```bash
+# CLI — select "Connect Ledger" when creating a new wallet
+iota-wallet --wallet myledger
+
+# GUI — click "Connect Ledger" on the welcome screen
+iota-wallet-gui
+```
+
+Build with Ledger support:
+
+```bash
+cargo build --release --features ledger
+```
+
 ## GUI
 
 ![Login](assets/login.png)

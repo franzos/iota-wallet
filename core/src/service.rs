@@ -121,6 +121,10 @@ impl WalletService {
         self.signer.sign_message(msg)
     }
 
+    pub fn verify_address(&self) -> Result<()> {
+        self.signer.verify_address()
+    }
+
     pub fn notarization_package(&self) -> Option<ObjectId> {
         self.resolve_notarization_package()
     }

@@ -62,6 +62,7 @@ pub(crate) struct Cli {
     /// On-chain notarization package ID (or set IOTA_NOTARIZATION_PKG_ID)
     #[arg(long, env = "IOTA_NOTARIZATION_PKG_ID")]
     notarization_package: Option<String>,
+
 }
 
 impl Cli {
@@ -206,9 +207,12 @@ async fn run_oneshot(cli: &Cli, cmd_str: &str) -> Result<()> {
     let effective_config = cli.resolve_network_config(wallet.network_config());
     let network = NetworkClient::new(&effective_config, cli.insecure)?;
     let notarization_pkg = cli.notarization_package_id()?;
+
+    let signer: Arc<dyn iota_wallet_core::Signer> = build_signer(&wallet, cli)?;
+
     let service = WalletService::new(
         network,
-        Arc::new(wallet.signer()),
+        signer,
         effective_config.network.to_string(),
     )
     .with_notarization_package(notarization_pkg);
@@ -231,4 +235,33 @@ async fn run_oneshot(cli: &Cli, cmd_str: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Build the appropriate signer based on wallet type.
+fn build_signer(wallet: &Wallet, _cli: &Cli) -> Result<Arc<dyn iota_wallet_core::Signer>> {
+    #[cfg(feature = "ledger")]
+    if wallet.is_ledger() {
+        use iota_wallet_core::ledger_signer::LedgerSigner;
+        use iota_wallet_core::Signer;
+
+        let path = iota_wallet_core::bip32_path_for(
+            wallet.network_config().network,
+            wallet.account_index() as u32,
+        );
+
+        println!("Connecting to Ledger device...");
+        let ledger_signer = LedgerSigner::connect(path)?;
+
+        // Verify the device address matches the stored one
+        if ledger_signer.address() != wallet.address() {
+            bail!(
+                "Ledger address mismatch. Device: {} Stored: {}. Wrong device or account?",
+                ledger_signer.address(),
+                wallet.address()
+            );
+        }
+        return Ok(Arc::new(ledger_signer));
+    }
+
+    Ok(Arc::new(wallet.signer()?))
 }

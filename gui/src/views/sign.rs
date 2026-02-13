@@ -56,6 +56,23 @@ impl App {
     }
 
     fn view_sign_mode(&self) -> Element<Message> {
+        // Ledger wallets don't support personal message signing
+        let is_ledger = self.wallet_info.as_ref().map(|i| i.is_ledger).unwrap_or(false);
+        if is_ledger {
+            return column![
+                text("Message").size(12).color(MUTED),
+                text("Personal message signing is not supported on Ledger devices.")
+                    .size(13)
+                    .color(styles::DANGER),
+                Space::new().height(8),
+                text("Transaction signing (send, stake, NFTs, notarize) works normally.")
+                    .size(12)
+                    .color(MUTED),
+            ]
+            .spacing(4)
+            .into();
+        }
+
         let input = text_input("Message to sign", &self.sign_message_input)
             .on_input(Message::SignMessageInputChanged)
             .on_submit(Message::ConfirmSign);

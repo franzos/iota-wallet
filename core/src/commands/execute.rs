@@ -352,15 +352,20 @@ impl Command {
             }
 
             Command::Seed => {
+                if wallet.is_ledger() {
+                    bail!("Seed phrase is not available for Ledger wallets.");
+                }
+                let mnemonic = wallet.mnemonic()
+                    .ok_or_else(|| anyhow::anyhow!("No mnemonic available."))?;
                 if json_output {
                     Ok(serde_json::json!({
-                        "mnemonic": wallet.mnemonic(),
+                        "mnemonic": mnemonic,
                     })
                     .to_string())
                 } else {
                     Ok(format!(
                         "Seed phrase (keep this secret!):\n  {}",
-                        wallet.mnemonic()
+                        mnemonic
                     ))
                 }
             }
@@ -370,15 +375,20 @@ impl Command {
                     None => {
                         let idx = wallet.account_index();
                         let addr = wallet.address().to_string();
+                        let is_ledger = wallet.is_ledger();
                         if json_output {
                             let known: Vec<serde_json::Value> = wallet
                                 .known_accounts()
                                 .iter()
                                 .map(|a| {
-                                    let a_addr = wallet
-                                        .derive_address_for(a.index)
-                                        .map(|a| a.to_string())
-                                        .unwrap_or_default();
+                                    let a_addr = if is_ledger {
+                                        if a.index == idx { addr.clone() } else { "?".to_string() }
+                                    } else {
+                                        wallet
+                                            .derive_address_for(a.index)
+                                            .map(|a| a.to_string())
+                                            .unwrap_or_default()
+                                    };
                                     serde_json::json!({
                                         "index": a.index,
                                         "address": a_addr,
@@ -393,15 +403,20 @@ impl Command {
                             })
                             .to_string())
                         } else {
-                            let mut out = format!("Account #{idx}\n  {addr}\n");
+                            let type_label = if is_ledger { " (Ledger)" } else { "" };
+                            let mut out = format!("Account #{idx}{type_label}\n  {addr}\n");
                             let known = wallet.known_accounts();
                             if !known.is_empty() {
                                 out.push_str("\nKnown accounts:\n");
                                 for a in known {
-                                    let a_addr = wallet
-                                        .derive_address_for(a.index)
-                                        .map(|a| a.to_string())
-                                        .unwrap_or_default();
+                                    let a_addr = if is_ledger {
+                                        if a.index == idx { addr.clone() } else { "?".to_string() }
+                                    } else {
+                                        wallet
+                                            .derive_address_for(a.index)
+                                            .map(|a| a.to_string())
+                                            .unwrap_or_default()
+                                    };
                                     let short = if a_addr.len() > 20 {
                                         format!("{}...{}", &a_addr[..10], &a_addr[a_addr.len()-8..])
                                     } else {

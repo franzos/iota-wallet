@@ -23,8 +23,13 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
     let wallets = list_wallets(&wallet_dir);
     if !wallets.is_empty() {
         println!("Existing wallets:");
-        for name in &wallets {
-            println!("  - {name}");
+        for entry in &wallets {
+            let suffix = if entry.wallet_type == iota_wallet_core::WalletType::Ledger {
+                " (Ledger)"
+            } else {
+                ""
+            };
+            println!("  - {}{suffix}", entry.name);
         }
         println!();
     }
@@ -38,7 +43,31 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
             rpassword::prompt_password("Password: ")
                 .context("Failed to read password")?,
         );
-        let w = Wallet::open(&wallet_path, password.as_bytes())?;
+        #[allow(unused_mut)]
+        let mut w = Wallet::open(&wallet_path, password.as_bytes())?;
+
+        // For Ledger wallets, verify the device is connected and address matches
+        #[cfg(feature = "ledger")]
+        if w.is_ledger() {
+            use iota_wallet_core::ledger_signer::LedgerSigner;
+            use iota_wallet_core::Signer;
+            use iota_wallet_core::wallet::Network;
+
+            let path = iota_wallet_core::bip32_path_for(
+                w.network_config().network,
+                w.account_index() as u32,
+            );
+            println!("Connecting to Ledger device...");
+            let signer = LedgerSigner::connect(path)?;
+            if signer.address() != w.address() {
+                anyhow::bail!(
+                    "Ledger address mismatch. Device: {} Stored: {}. Wrong device or account?",
+                    signer.address(),
+                    w.address()
+                );
+            }
+        }
+
         let pw_bytes = Zeroizing::new(password.as_bytes().to_vec());
         (w, pw_bytes)
     } else {
@@ -63,7 +92,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                 println!();
                 println!("New wallet created in {}", wallet_path.display());
                 println!("IMPORTANT: Write down your seed phrase and keep it safe:");
-                println!("  {}", w.mnemonic());
+                println!("  {}", w.mnemonic().unwrap());
                 println!();
                 w
             }
@@ -77,6 +106,30 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                 )?;
                 println!();
                 println!("Wallet recovered!");
+                w
+            }
+            #[cfg(feature = "ledger")]
+            WalletAction::ConnectLedger => {
+                use iota_wallet_core::ledger_signer::LedgerSigner;
+                use iota_wallet_core::Signer;
+
+                let path = iota_wallet_core::bip32_path_for(network_config.network, 0);
+                println!("Connecting to Ledger device...");
+                let signer = LedgerSigner::connect(path)?;
+                println!("Address: {}", signer.address());
+                println!("Verify the address on your Ledger device...");
+                signer.verify_address()?;
+                println!("Address confirmed.");
+
+                let address = *signer.address();
+                let w = Wallet::create_ledger(
+                    wallet_path.clone(),
+                    password.as_bytes(),
+                    address,
+                    network_config,
+                )?;
+                println!();
+                println!("Ledger wallet created in {}", wallet_path.display());
                 w
             }
             WalletAction::Quit => unreachable!(),
@@ -94,9 +147,12 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
     let effective_config = cli.resolve_network_config(wallet.network_config());
     let network = NetworkClient::new(&effective_config, cli.insecure)?;
     let notarization_pkg = cli.notarization_package_id()?;
+
+    let signer: Arc<dyn iota_wallet_core::Signer> = build_repl_signer(&wallet, cli)?;
+
     let mut service = WalletService::new(
         network,
-        Arc::new(wallet.signer()),
+        signer,
         effective_config.network.to_string(),
     )
     .with_notarization_package(notarization_pkg);
@@ -155,6 +211,47 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                     Ok(Command::Account { index: Some(idx) }) => {
                         match wallet.switch_account(idx) {
                             Ok(()) => {
+                                // For Ledger wallets, reconnect the device with the new path
+                                #[cfg(feature = "ledger")]
+                                if wallet.is_ledger() {
+                                    use iota_wallet_core::ledger_signer::LedgerSigner;
+                                    use iota_wallet_core::Signer;
+                                    let path = iota_wallet_core::bip32_path_for(
+                                        wallet.network_config().network,
+                                        idx as u32,
+                                    );
+                                    match LedgerSigner::connect(path) {
+                                        Ok(new_signer) => {
+                                            wallet.set_address(*new_signer.address());
+                                            if let Err(e) = wallet.save(&session_password) {
+                                                eprintln!("Error saving wallet: {e}");
+                                                continue;
+                                            }
+                                            let network = NetworkClient::new(&effective_config, cli.insecure)?;
+                                            service = WalletService::new(
+                                                network,
+                                                Arc::new(new_signer),
+                                                effective_config.network.to_string(),
+                                            )
+                                            .with_notarization_package(notarization_pkg);
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Error connecting to Ledger: {e}");
+                                            continue;
+                                        }
+                                    }
+                                    let prompt_str = format!("[wallet {}]", wallet.short_address());
+                                    prompt = DefaultPrompt::new(
+                                        DefaultPromptSegment::Basic(prompt_str),
+                                        DefaultPromptSegment::Empty,
+                                    );
+                                    println!(
+                                        "Switched to account #{idx}. Address: {}",
+                                        wallet.address()
+                                    );
+                                    continue;
+                                }
+
                                 if let Err(e) = wallet.save(&session_password) {
                                     eprintln!("Error saving wallet: {e}");
                                     continue;
@@ -162,7 +259,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                                 let network = NetworkClient::new(&effective_config, cli.insecure)?;
                                 service = WalletService::new(
                                     network,
-                                    Arc::new(wallet.signer()),
+                                    Arc::new(wallet.signer()?),
                                     effective_config.network.to_string(),
                                 )
                                 .with_notarization_package(notarization_pkg);
@@ -273,15 +370,25 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
 enum WalletAction {
     CreateNew,
     Recover,
+    #[cfg(feature = "ledger")]
+    ConnectLedger,
     Quit,
 }
 
 fn prompt_action() -> Result<WalletAction> {
     println!("  1) Create new wallet");
     println!("  2) Recover from seed phrase");
+    #[cfg(feature = "ledger")]
+    println!("  3) Connect Ledger");
+    #[cfg(feature = "ledger")]
+    println!("  4) Quit");
+    #[cfg(not(feature = "ledger"))]
     println!("  3) Quit");
     loop {
         let mut input = String::new();
+        #[cfg(feature = "ledger")]
+        print!("Choice [1/2/3/4]: ");
+        #[cfg(not(feature = "ledger"))]
         print!("Choice [1/2/3]: ");
         use std::io::Write;
         std::io::stdout().flush()?;
@@ -289,8 +396,13 @@ fn prompt_action() -> Result<WalletAction> {
         match input.trim() {
             "1" | "" => return Ok(WalletAction::CreateNew),
             "2" => return Ok(WalletAction::Recover),
+            #[cfg(feature = "ledger")]
+            "3" => return Ok(WalletAction::ConnectLedger),
+            #[cfg(feature = "ledger")]
+            "4" | "q" => return Ok(WalletAction::Quit),
+            #[cfg(not(feature = "ledger"))]
             "3" | "q" => return Ok(WalletAction::Quit),
-            _ => println!("Please enter 1, 2, or 3."),
+            _ => println!("Please enter a valid option."),
         }
     }
 }
@@ -323,4 +435,20 @@ fn prompt_mnemonic() -> Result<Zeroizing<String>> {
         anyhow::bail!("Seed phrase should be at least 12 words.");
     }
     Ok(trimmed)
+}
+
+/// Build the appropriate signer for the REPL session.
+fn build_repl_signer(wallet: &Wallet, _cli: &Cli) -> Result<Arc<dyn iota_wallet_core::Signer>> {
+    #[cfg(feature = "ledger")]
+    if wallet.is_ledger() {
+        use iota_wallet_core::ledger_signer::LedgerSigner;
+        let path = iota_wallet_core::bip32_path_for(
+            wallet.network_config().network,
+            wallet.account_index() as u32,
+        );
+        let signer = LedgerSigner::connect(path)?;
+        return Ok(Arc::new(signer));
+    }
+
+    Ok(Arc::new(wallet.signer()?))
 }

@@ -1,6 +1,21 @@
 pub mod cache;
 pub mod commands;
 pub mod display;
+#[cfg(feature = "ledger")]
+pub mod ledger_signer;
+#[cfg(feature = "ledger")]
+pub use ledger_signer::LedgerSigner;
+#[cfg(feature = "ledger")]
+pub use ledger_iota_rebased::Bip32Path;
+
+/// Derive the BIP32 path for a given network and account index.
+#[cfg(feature = "ledger")]
+pub fn bip32_path_for(network: wallet::Network, account_index: u32) -> Bip32Path {
+    match network {
+        wallet::Network::Mainnet => Bip32Path::iota(account_index, 0, 0),
+        _ => Bip32Path::testnet(account_index, 0, 0),
+    }
+}
 pub mod network;
 pub mod recipient;
 pub mod service;
@@ -9,7 +24,7 @@ pub mod wallet;
 pub mod wallet_file;
 
 pub use cache::TransactionCache;
-pub use wallet::{AccountRecord, Wallet};
+pub use wallet::{AccountRecord, Wallet, WalletType};
 pub use network::NetworkClient;
 pub use commands::Command;
 pub use recipient::{Recipient, ResolvedRecipient};
@@ -36,19 +51,50 @@ pub fn validate_wallet_name(name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// List wallet files in a directory (stem names of `.wallet` files).
-pub fn list_wallets(dir: &std::path::Path) -> Vec<String> {
-    let mut names = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
+/// Entry from the wallet directory listing.
+#[derive(Debug, Clone)]
+pub struct WalletEntry {
+    pub name: String,
+    pub wallet_type: WalletType,
+}
+
+/// List wallet files in a directory with their type.
+/// Type is read from a `.meta` sidecar file; defaults to Software if missing.
+pub fn list_wallets(dir: &std::path::Path) -> Vec<WalletEntry> {
+    let mut entries = Vec::new();
+    if let Ok(dir_entries) = std::fs::read_dir(dir) {
+        for entry in dir_entries.flatten() {
             let path = entry.path();
             if path.extension().map(|e| e == "wallet").unwrap_or(false) {
                 if let Some(stem) = path.file_stem() {
-                    names.push(stem.to_string_lossy().to_string());
+                    let name = stem.to_string_lossy().to_string();
+                    let meta_path = path.with_extension("meta");
+                    let wallet_type = read_wallet_meta(&meta_path);
+                    entries.push(WalletEntry { name, wallet_type });
                 }
             }
         }
     }
-    names.sort();
-    names
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+/// Write wallet type metadata to an unencrypted sidecar file.
+pub fn write_wallet_meta(wallet_path: &std::path::Path, wallet_type: WalletType) {
+    let meta_path = wallet_path.with_extension("meta");
+    let type_str = match wallet_type {
+        WalletType::Ledger => "ledger",
+        WalletType::Software => "software",
+    };
+    let _ = std::fs::write(&meta_path, type_str);
+}
+
+fn read_wallet_meta(path: &std::path::Path) -> WalletType {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| match s.trim() {
+            "ledger" => Some(WalletType::Ledger),
+            _ => Some(WalletType::Software),
+        })
+        .unwrap_or(WalletType::Software)
 }

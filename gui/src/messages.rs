@@ -7,7 +7,7 @@ use zeroize::Zeroizing;
 
 // -- Messages --
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) enum Message {
     // Navigation
     GoTo(Screen),
@@ -35,6 +35,18 @@ pub(crate) enum Message {
     // Recover
     RecoverWallet,
     WalletRecovered(Result<WalletInfo, String>),
+
+    // Ledger
+    #[cfg(feature = "ledger")]
+    LedgerConnect,
+    #[cfg(feature = "ledger")]
+    LedgerConnected(Result<WalletInfo, String>),
+
+    // Ledger address verification
+    #[cfg(feature = "ledger")]
+    LedgerVerifyAddress,
+    #[cfg(feature = "ledger")]
+    LedgerVerifyAddressCompleted(Result<(), String>),
 
     // Dashboard
     RefreshBalance,

@@ -23,10 +23,11 @@ impl App {
             .on_submit(Message::CreateWallet)
             .secure(true);
 
+        let form_error = self.validate_create_form();
         let mut create = button(text("Create").size(14))
             .padding([10, 20])
             .style(styles::btn_primary);
-        if self.loading == 0 && self.validate_create_form().is_none() {
+        if self.loading == 0 && form_error.is_none() {
             create = create.on_press(Message::CreateWallet);
         }
         let back = button(text("Back").size(14))
@@ -40,11 +41,17 @@ impl App {
             name,
             pw,
             pw2,
-            Space::new().height(8),
-            row![back, create].spacing(10),
         ]
         .spacing(5)
         .max_width(400);
+
+        if let Some(hint) = &form_error {
+            col = col.push(Space::new().height(4));
+            col = col.push(text(hint.clone()).size(12).color(styles::WARNING));
+        }
+
+        col = col.push(Space::new().height(8));
+        col = col.push(row![back, create].spacing(10));
 
         if self.loading > 0 {
             col = col.push(text("Creating wallet...").size(13).color(MUTED));

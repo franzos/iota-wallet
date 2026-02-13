@@ -10,6 +10,15 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::signer::SoftwareSigner;
 use crate::wallet_file;
 
+/// Whether the wallet is backed by a software mnemonic or a Ledger hardware device.
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WalletType {
+    #[default]
+    Software,
+    Ledger,
+}
+
 /// Per-account metadata stored alongside the wallet.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AccountRecord {
@@ -21,18 +30,26 @@ pub struct AccountRecord {
 /// Serialized wallet state — what gets encrypted and stored on disk.
 #[derive(Serialize, Deserialize)]
 pub struct WalletData {
-    pub mnemonic: String,
+    #[serde(default)]
+    pub mnemonic: Option<String>,
     #[serde(rename = "network")]
     pub network_config: NetworkConfig,
     #[serde(default)]
     pub active_account_index: u64,
     #[serde(default)]
     pub accounts: Vec<AccountRecord>,
+    #[serde(default)]
+    pub wallet_type: WalletType,
+    /// Stored address for Ledger wallets (to verify on reconnect).
+    #[serde(default)]
+    pub address: Option<String>,
 }
 
 impl Drop for WalletData {
     fn drop(&mut self) {
-        self.mnemonic.zeroize();
+        if let Some(ref mut m) = self.mnemonic {
+            m.zeroize();
+        }
     }
 }
 
@@ -98,7 +115,8 @@ fn ensure_account_in_list(accounts: &mut Vec<AccountRecord>, index: u64) {
 /// In-memory wallet with derived key material.
 pub struct Wallet {
     data: WalletData,
-    private_key: Ed25519PrivateKey,
+    /// `None` for Ledger wallets — signing happens on the device.
+    private_key: Option<Ed25519PrivateKey>,
     address: Address,
     path: PathBuf,
 }
@@ -114,10 +132,12 @@ impl Wallet {
         let (private_key, address) = derive_key(&mnemonic, 0)?;
 
         let data = WalletData {
-            mnemonic,
+            mnemonic: Some(mnemonic),
             network_config,
             active_account_index: 0,
             accounts: vec![AccountRecord { index: 0, last_balance: None }],
+            wallet_type: WalletType::Software,
+            address: None,
         };
 
         let json = Zeroizing::new(
@@ -126,10 +146,11 @@ impl Wallet {
         );
         wallet_file::save_to_file(&path, &json, password)
             .context("Failed to save wallet file")?;
+        crate::write_wallet_meta(&path, WalletType::Software);
 
         Ok(Self {
             data,
-            private_key,
+            private_key: Some(private_key),
             address,
             path,
         })
@@ -142,17 +163,34 @@ impl Wallet {
         let mut data: WalletData = serde_json::from_slice(&json)
             .context("Failed to parse wallet data. File may be corrupt.")?;
 
-        let (private_key, address) = derive_key(&data.mnemonic, data.active_account_index)?;
-
         // Ensure active account is in the known list (handles old wallet files)
         ensure_account_in_list(&mut data.accounts, data.active_account_index);
 
-        Ok(Self {
-            data,
-            private_key,
-            address,
-            path: path.to_path_buf(),
-        })
+        match data.wallet_type {
+            WalletType::Software => {
+                let mnemonic = data.mnemonic.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Software wallet is missing its mnemonic."))?;
+                let (private_key, address) = derive_key(mnemonic, data.active_account_index)?;
+                Ok(Self {
+                    data,
+                    private_key: Some(private_key),
+                    address,
+                    path: path.to_path_buf(),
+                })
+            }
+            WalletType::Ledger => {
+                let address = data.address.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Ledger wallet is missing its stored address."))?;
+                let address = address.parse::<Address>()
+                    .map_err(|e| anyhow::anyhow!("Invalid stored address: {e}"))?;
+                Ok(Self {
+                    data,
+                    private_key: None,
+                    address,
+                    path: path.to_path_buf(),
+                })
+            }
+        }
     }
 
     /// Recover a wallet from an existing mnemonic phrase.
@@ -165,10 +203,12 @@ impl Wallet {
         let (private_key, address) = derive_key(mnemonic, 0)?;
 
         let data = WalletData {
-            mnemonic: mnemonic.to_string(),
+            mnemonic: Some(mnemonic.to_string()),
             network_config,
             active_account_index: 0,
             accounts: vec![AccountRecord { index: 0, last_balance: None }],
+            wallet_type: WalletType::Software,
+            address: None,
         };
 
         let json = Zeroizing::new(
@@ -177,10 +217,43 @@ impl Wallet {
         );
         wallet_file::save_to_file(&path, &json, password)
             .context("Failed to save wallet file")?;
+        crate::write_wallet_meta(&path, WalletType::Software);
 
         Ok(Self {
             data,
-            private_key,
+            private_key: Some(private_key),
+            address,
+            path,
+        })
+    }
+
+    /// Create a new Ledger wallet file. The address comes from the connected device.
+    pub fn create_ledger(
+        path: PathBuf,
+        password: &[u8],
+        address: Address,
+        network_config: NetworkConfig,
+    ) -> Result<Self> {
+        let data = WalletData {
+            mnemonic: None,
+            network_config,
+            active_account_index: 0,
+            accounts: vec![AccountRecord { index: 0, last_balance: None }],
+            wallet_type: WalletType::Ledger,
+            address: Some(address.to_string()),
+        };
+
+        let json = Zeroizing::new(
+            serde_json::to_vec(&data)
+                .context("Failed to serialize wallet data")?,
+        );
+        wallet_file::save_to_file(&path, &json, password)
+            .context("Failed to save wallet file")?;
+        crate::write_wallet_meta(&path, WalletType::Ledger);
+
+        Ok(Self {
+            data,
+            private_key: None,
             address,
             path,
         })
@@ -218,10 +291,22 @@ impl Wallet {
 
     /// Switch to a different account index. Re-derives the keypair and address.
     /// Does NOT save — caller decides whether to persist.
+    ///
+    /// For Ledger wallets this only updates the index — the caller must reconnect
+    /// the device with the new derivation path and call `set_address()`.
     pub fn switch_account(&mut self, index: u64) -> Result<()> {
-        let (private_key, address) = derive_key(&self.data.mnemonic, index)?;
-        self.private_key = private_key;
-        self.address = address;
+        match self.data.wallet_type {
+            WalletType::Software => {
+                let mnemonic = self.data.mnemonic.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Software wallet is missing its mnemonic."))?;
+                let (private_key, address) = derive_key(mnemonic, index)?;
+                self.private_key = Some(private_key);
+                self.address = address;
+            }
+            WalletType::Ledger => {
+                // Index update only — caller reconnects the device
+            }
+        }
         self.data.active_account_index = index;
         ensure_account_in_list(&mut self.data.accounts, index);
         Ok(())
@@ -236,13 +321,22 @@ impl Wallet {
     }
 
     /// Derive the address for an account index without switching to it.
+    /// Only available for software wallets.
     pub fn derive_address_for(&self, index: u64) -> Result<Address> {
-        let (_, address) = derive_key(&self.data.mnemonic, index)?;
+        let mnemonic = self.data.mnemonic.as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Cannot derive addresses for a Ledger wallet."))?;
+        let (_, address) = derive_key(mnemonic, index)?;
         Ok(address)
     }
 
     pub fn address(&self) -> &Address {
         &self.address
+    }
+
+    /// Update the address (used after Ledger reconnect with a new derivation path).
+    pub fn set_address(&mut self, address: Address) {
+        self.data.address = Some(address.to_string());
+        self.address = address;
     }
 
     /// Short address string for display in prompts (first 4 hex chars after 0x).
@@ -255,12 +349,24 @@ impl Wallet {
         }
     }
 
-    pub fn signer(&self) -> SoftwareSigner {
-        SoftwareSigner::new(self.private_key.clone())
+    /// Build a software signer. Returns an error if called on a Ledger wallet.
+    pub fn signer(&self) -> Result<SoftwareSigner> {
+        let key = self.private_key.clone().ok_or_else(|| {
+            anyhow::anyhow!("Cannot build software signer for a Ledger wallet. Use LedgerSigner instead.")
+        })?;
+        Ok(SoftwareSigner::new(key))
     }
 
-    pub fn mnemonic(&self) -> &str {
-        &self.data.mnemonic
+    pub fn mnemonic(&self) -> Option<&str> {
+        self.data.mnemonic.as_deref()
+    }
+
+    pub fn wallet_type(&self) -> &WalletType {
+        &self.data.wallet_type
+    }
+
+    pub fn is_ledger(&self) -> bool {
+        self.data.wallet_type == WalletType::Ledger
     }
 
     pub fn network_config(&self) -> &NetworkConfig {
@@ -303,7 +409,8 @@ mod tests {
         .unwrap();
 
         // Mnemonic should be 24 words
-        let word_count = wallet.mnemonic().split_whitespace().count();
+        let mnemonic = wallet.mnemonic().expect("software wallet should have mnemonic");
+        let word_count = mnemonic.split_whitespace().count();
         assert_eq!(word_count, 24, "expected 24-word mnemonic, got {word_count}");
 
         // Address should be non-zero
@@ -328,7 +435,7 @@ mod tests {
 
         let wallet2 = Wallet::open(&path, password).unwrap();
 
-        assert_eq!(wallet1.mnemonic(), wallet2.mnemonic());
+        assert_eq!(wallet1.mnemonic().unwrap(), wallet2.mnemonic().unwrap());
         assert_eq!(*wallet1.address(), *wallet2.address());
     }
 
@@ -349,7 +456,7 @@ mod tests {
         let recovered = Wallet::recover_from_mnemonic(
             path2,
             password,
-            original.mnemonic(),
+            original.mnemonic().unwrap(),
             NetworkConfig::default(),
         )
         .unwrap();
@@ -483,7 +590,7 @@ mod tests {
         )
         .unwrap();
 
-        let original_mnemonic = wallet.mnemonic().to_string();
+        let original_mnemonic = wallet.mnemonic().unwrap().to_string();
         let original_address = *wallet.address();
 
         // Re-save (simulates persisting after potential state changes)
@@ -492,7 +599,7 @@ mod tests {
         // Reopen and verify everything persisted correctly
         let reopened = Wallet::open(&path, password).unwrap();
         assert_eq!(
-            reopened.mnemonic(),
+            reopened.mnemonic().unwrap(),
             original_mnemonic,
             "mnemonic should persist across save/reopen"
         );

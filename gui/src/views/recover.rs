@@ -21,8 +21,9 @@ impl App {
             .on_submit(Message::RecoverWallet)
             .secure(true);
 
+        let form_error = self.validate_create_form();
         let can_submit = self.loading == 0
-            && self.validate_create_form().is_none()
+            && form_error.is_none()
             && !self.mnemonic_input.trim().is_empty();
         let mut recover = button(text("Recover").size(14))
             .padding([10, 20])
@@ -42,11 +43,17 @@ impl App {
             mnemonic,
             pw,
             pw2,
-            Space::new().height(8),
-            row![back, recover].spacing(10),
         ]
         .spacing(5)
         .max_width(400);
+
+        if let Some(hint) = &form_error {
+            col = col.push(Space::new().height(4));
+            col = col.push(text(hint.clone()).size(12).color(styles::WARNING));
+        }
+
+        col = col.push(Space::new().height(8));
+        col = col.push(row![back, recover].spacing(10));
 
         if self.loading > 0 {
             col = col.push(text("Recovering wallet...").size(13).color(MUTED));

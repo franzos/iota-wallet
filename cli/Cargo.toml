@@ -11,6 +11,10 @@ repository.workspace = true
 name = "iota-wallet"
 path = "src/main.rs"
 
+[features]
+default = []
+ledger = ["iota-wallet-core/ledger"]
+
 [dependencies]
 iota-wallet-core = { path = "../core" }
 clap = { version = "4", features = ["derive", "env"] }

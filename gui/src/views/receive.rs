@@ -1,6 +1,6 @@
 use crate::messages::Message;
 use crate::{styles, App, BG, BORDER, MUTED};
-use iced::widget::{button, column, container, row, text, qr_code, Space};
+use iced::widget::{button, column, container, qr_code, row, text, Space};
 use iced::{Element, Fill, Font};
 
 impl App {
@@ -31,6 +31,18 @@ impl App {
             .style(styles::btn_primary)
             .on_press(Message::CopyAddress);
 
+        #[cfg(feature = "ledger")]
+        let verify_on_device = if info.is_ledger {
+            Some(
+                button(text("Verify on Device").size(14))
+                    .padding([10, 20])
+                    .style(styles::btn_secondary)
+                    .on_press(Message::LedgerVerifyAddress),
+            )
+        } else {
+            None
+        };
+
         let mut card_content = column![text("Your Address").size(12).color(MUTED),]
             .spacing(8);
 
@@ -39,10 +51,16 @@ impl App {
                 .push(container(qr_code(data).cell_size(6)).center_x(Fill));
         }
 
+        let mut btn_row = row![copy].spacing(8);
+        #[cfg(feature = "ledger")]
+        if let Some(verify_btn) = verify_on_device {
+            btn_row = btn_row.push(verify_btn);
+        }
+
         card_content = card_content
             .push(addr_container)
             .push(Space::new().height(8))
-            .push(copy);
+            .push(btn_row);
 
         let header = row![title, Space::new().width(Fill)]
             .align_y(iced::Alignment::Center);
@@ -56,6 +74,9 @@ impl App {
         ]
         .spacing(16);
 
+        if let Some(err) = &self.error_message {
+            col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
+        }
         if let Some(msg) = &self.status_message {
             col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
         }

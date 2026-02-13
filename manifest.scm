@@ -3,7 +3,8 @@
              (gnu packages freedesktop)
              (gnu packages xdisorg)
              (gnu packages vulkan)
-             (gnu packages rust))
+             (gnu packages rust)
+             (gnu packages linux))
 
 (packages->manifest
  (list rust-1.88
@@ -13,4 +14,5 @@
        wayland
        wayland-protocols
        libxkbcommon
-       vulkan-loader))
+       vulkan-loader
+       eudev))

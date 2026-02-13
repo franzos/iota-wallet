@@ -24,7 +24,7 @@ impl App {
             Message::GoTo(screen) => {
                 self.clear_form();
                 if screen == Screen::WalletSelect {
-                    self.wallet_names = list_wallets(&self.wallet_dir);
+                    self.wallet_entries = list_wallets(&self.wallet_dir);
                     self.wallet_info = None;
                     self.qr_data = None;
                     self.balance = None;
@@ -113,6 +113,34 @@ impl App {
                 Task::perform(
                     async move {
                         let wallet = Wallet::open(&path, &pw)?;
+
+                        #[cfg(feature = "ledger")]
+                        if wallet.is_ledger() {
+                            use iota_wallet_core::ledger_signer::LedgerSigner;
+                            use iota_wallet_core::Signer;
+
+                            let bip32_path = iota_wallet_core::bip32_path_for(
+                                wallet.network_config().network,
+                                wallet.account_index() as u32,
+                            );
+
+                            let stored_addr = *wallet.address();
+                            let signer = tokio::task::spawn_blocking(move || {
+                                LedgerSigner::connect(bip32_path)
+                            })
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Task failed: {e}"))??;
+
+                            if *signer.address() != stored_addr {
+                                anyhow::bail!(
+                                    "Ledger address mismatch. Device: {} Stored: {}",
+                                    signer.address(),
+                                    stored_addr
+                                );
+                            }
+                            return WalletInfo::from_wallet_with_signer(&wallet, Arc::new(signer));
+                        }
+
                         WalletInfo::from_wallet(&wallet)
                     },
                     |r: Result<WalletInfo, anyhow::Error>| {
@@ -162,7 +190,7 @@ impl App {
                     async move {
                         std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
                         let wallet = Wallet::create_new(path, &pw, config)?;
-                        let mnemonic = Zeroizing::new(wallet.mnemonic().to_string());
+                        let mnemonic = Zeroizing::new(wallet.mnemonic().unwrap().to_string());
                         let info = WalletInfo::from_wallet(&wallet)?;
                         Ok((info, mnemonic))
                     },
@@ -243,6 +271,107 @@ impl App {
                         self.clear_form();
                         self.screen = Screen::Account;
                         return self.refresh_dashboard();
+                    }
+                    Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
+            // -- Ledger --
+            #[cfg(feature = "ledger")]
+            Message::LedgerConnect => {
+                if let Some(err) = self.validate_create_form() {
+                    self.error_message = Some(err);
+                    return Task::none();
+                }
+                let name = self.wallet_name.clone();
+                if let Err(e) = validate_wallet_name(&name) {
+                    self.error_message = Some(e.to_string());
+                    return Task::none();
+                }
+                let path = self.wallet_dir.join(format!("{name}.wallet"));
+                if path.exists() {
+                    self.error_message = Some(format!("Wallet '{name}' already exists"));
+                    return Task::none();
+                }
+                let pw = Zeroizing::new(self.password.as_bytes().to_vec());
+                self.session_password = pw.clone();
+                let config = self.network_config.clone();
+                self.loading += 1;
+                self.error_message = None;
+
+                Task::perform(
+                    async move {
+                        use iota_wallet_core::ledger_signer::LedgerSigner;
+                        use iota_wallet_core::Signer;
+
+                        let bip32_path = iota_wallet_core::bip32_path_for(config.network, 0);
+
+                        let signer = tokio::task::spawn_blocking(move || {
+                            let s = LedgerSigner::connect(bip32_path)?;
+                            s.verify_address()?;
+                            Ok::<_, anyhow::Error>(s)
+                        })
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Task failed: {e}"))??;
+
+                        let address = *signer.address();
+                        std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
+                        let wallet = Wallet::create_ledger(path, &pw, address, config)?;
+                        WalletInfo::from_wallet_with_signer(&wallet, Arc::new(signer))
+                    },
+                    |r: Result<WalletInfo, anyhow::Error>| {
+                        Message::LedgerConnected(r.map_err(|e| e.to_string()))
+                    },
+                )
+            }
+
+            #[cfg(feature = "ledger")]
+            Message::LedgerConnected(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok(info) => {
+                        self.selected_wallet = Some(self.wallet_name.clone());
+                        self.qr_data = qr_code::Data::new(&info.address_string).ok();
+                        self.wallet_info = Some(info);
+                        self.clear_form();
+                        self.screen = Screen::Account;
+                        return self.refresh_dashboard();
+                    }
+                    Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
+            // -- Ledger verify address --
+            #[cfg(feature = "ledger")]
+            Message::LedgerVerifyAddress => {
+                let Some(info) = &self.wallet_info else {
+                    return Task::none();
+                };
+                let service = info.service.clone();
+                self.loading += 1;
+                self.error_message = None;
+                self.status_message = None;
+
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || service.verify_address())
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Task failed: {e}"))?
+                    },
+                    |r: Result<(), anyhow::Error>| {
+                        Message::LedgerVerifyAddressCompleted(r.map_err(|e| e.to_string()))
+                    },
+                )
+            }
+
+            #[cfg(feature = "ledger")]
+            Message::LedgerVerifyAddressCompleted(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok(()) => {
+                        self.status_message = Some("Address verified on device".into());
                     }
                     Err(e) => self.error_message = Some(e),
                 }
@@ -727,6 +856,7 @@ impl App {
                 let name = self.selected_wallet.clone().unwrap_or_default();
                 let path = self.wallet_dir.join(format!("{name}.wallet"));
                 let pw = self.session_password.clone();
+                let is_ledger = self.wallet_info.as_ref().map(|i| i.is_ledger).unwrap_or(false);
                 self.loading += 1;
                 self.error_message = None;
 
@@ -734,6 +864,34 @@ impl App {
                     async move {
                         let mut wallet = Wallet::open(&path, &pw)?;
                         wallet.switch_account(index)?;
+
+                        #[cfg(feature = "ledger")]
+                        if is_ledger {
+                            use iota_wallet_core::ledger_signer::LedgerSigner;
+                            use iota_wallet_core::Signer;
+                            let bip32_path = iota_wallet_core::bip32_path_for(
+                                wallet.network_config().network,
+                                index as u32,
+                            );
+
+                            let signer = tokio::task::spawn_blocking(move || {
+                                let s = LedgerSigner::connect(bip32_path)?;
+                                s.verify_address()?;
+                                Ok::<_, anyhow::Error>(s)
+                            })
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Task failed: {e}"))??;
+
+                            wallet.set_address(*signer.address());
+                            wallet.save(&pw)?;
+                            return WalletInfo::from_wallet_with_signer(&wallet, Arc::new(signer));
+                        }
+
+                        #[cfg(not(feature = "ledger"))]
+                        if is_ledger {
+                            anyhow::bail!("Ledger support not compiled in.");
+                        }
+
                         wallet.save(&pw)?;
                         WalletInfo::from_wallet(&wallet)
                     },
@@ -1058,14 +1216,14 @@ impl App {
     }
 
     pub(crate) fn validate_create_form(&self) -> Option<String> {
-        if self.password.is_empty() {
-            return Some("Password is required".into());
+        if self.wallet_name.trim().is_empty() {
+            return Some("Wallet name is required".into());
         }
         if self.password != self.password_confirm {
             return Some("Passwords don't match".into());
         }
-        if self.wallet_name.trim().is_empty() {
-            return Some("Wallet name is required".into());
+        if self.wallet_entries.iter().any(|e| e.name == self.wallet_name.trim()) {
+            return Some(format!("Wallet '{}' already exists", self.wallet_name.trim()));
         }
         None
     }
