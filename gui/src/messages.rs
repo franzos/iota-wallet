@@ -118,5 +118,5 @@ pub(crate) enum Message {
     SettingsNewPasswordChanged(Zeroizing<String>),
     SettingsNewPasswordConfirmChanged(Zeroizing<String>),
     ChangePassword,
-    ChangePasswordCompleted(Result<(), String>),
+    ChangePasswordCompleted(Result<Zeroizing<Vec<u8>>, String>),
 }

@@ -1166,9 +1166,9 @@ impl App {
                 Task::perform(
                     async move {
                         Wallet::change_password(&path, &old_pw, &new_pw)?;
-                        Ok(())
+                        Ok(new_pw)
                     },
-                    |r: Result<(), anyhow::Error>| {
+                    |r: Result<Zeroizing<Vec<u8>>, anyhow::Error>| {
                         Message::ChangePasswordCompleted(r.map_err(|e| e.to_string()))
                     },
                 )
@@ -1177,7 +1177,8 @@ impl App {
             Message::ChangePasswordCompleted(result) => {
                 self.loading = self.loading.saturating_sub(1);
                 match result {
-                    Ok(()) => {
+                    Ok(new_pw) => {
+                        self.session_password = new_pw;
                         self.success_message = Some("Password changed".into());
                         self.settings_old_password.zeroize();
                         self.settings_new_password.zeroize();
