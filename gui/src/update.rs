@@ -195,7 +195,12 @@ impl App {
                     async move {
                         std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
                         let wallet = Wallet::create_new(path, &pw, config)?;
-                        let mnemonic = Zeroizing::new(wallet.mnemonic().unwrap().to_string());
+                        let mnemonic = Zeroizing::new(
+                            wallet
+                                .mnemonic()
+                                .ok_or_else(|| anyhow::anyhow!("Wallet has no mnemonic"))?
+                                .to_string(),
+                        );
                         let info = WalletInfo::from_wallet(&wallet)?;
                         Ok((info, mnemonic))
                     },
@@ -506,10 +511,9 @@ impl App {
                     }
                 };
 
-                let is_token = self.selected_token.as_ref().map(|t| !t.is_iota()).unwrap_or(false);
+                let token = self.selected_token.as_ref().filter(|t| !t.is_iota()).cloned();
 
-                if is_token {
-                    let token = self.selected_token.clone().unwrap();
+                if let Some(token) = token {
                     let amount_str = self.amount.clone();
                     let service = info.service.clone();
                     self.loading += 1;
