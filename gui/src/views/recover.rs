@@ -52,6 +52,9 @@ impl App {
             col = col.push(Space::new().height(4));
             col = col.push(text(hint.clone()).size(12).color(styles::WARNING));
         }
+        if let Some(warn) = self.password_warning() {
+            col = col.push(text(warn).size(12).color(styles::WARNING));
+        }
 
         col = col.push(Space::new().height(8));
         col = col.push(row![back, recover].spacing(10));

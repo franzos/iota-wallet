@@ -1220,6 +1220,13 @@ impl App {
         self.settings_new_password_confirm.zeroize();
     }
 
+    pub(crate) fn password_warning(&self) -> Option<&'static str> {
+        if !self.password.is_empty() && self.password.len() < 4 {
+            return Some("Very short password — offers little protection if wallet file is stolen");
+        }
+        None
+    }
+
     pub(crate) fn validate_create_form(&self) -> Option<String> {
         if self.wallet_name.trim().is_empty() {
             return Some("Wallet name is required".into());
