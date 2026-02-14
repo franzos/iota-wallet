@@ -37,7 +37,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
     let wallet_path = cli.wallet_path()?;
     let wallet_name = &cli.wallet;
 
-    let (mut wallet, session_password) = if wallet_path.exists() {
+    let (mut wallet, mut session_password) = if wallet_path.exists() {
         println!("Opening wallet '{wallet_name}'...");
         let password = Zeroizing::new(
             rpassword::prompt_password("Password: ")
@@ -309,7 +309,10 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                             old_pw.as_bytes(),
                             new_pw.as_bytes(),
                         ) {
-                            Ok(()) => println!("Password changed."),
+                            Ok(()) => {
+                                session_password = Zeroizing::new(new_pw.as_bytes().to_vec());
+                                println!("Password changed.");
+                            }
                             Err(e) => eprintln!("Error: {e}"),
                         }
                     }
@@ -425,6 +428,9 @@ fn prompt_new_password() -> Result<Zeroizing<String>> {
         if *pass1 != *pass2 {
             println!("Passwords do not match. Try again.");
             continue;
+        }
+        if pass1.len() < 4 {
+            eprintln!("WARNING: This password is very short. A weak password offers little protection if the wallet file is stolen.");
         }
         return Ok(pass1);
     }

@@ -3,6 +3,7 @@ use crate::{styles, App, MUTED};
 use iced::widget::{button, column, container, row, text, text_input, Space};
 use iced::{Element, Fill};
 use iota_wallet_core::wallet::Network;
+use zeroize::Zeroizing;
 
 impl App {
     pub(crate) fn view_settings(&self) -> Element<Message> {
@@ -60,13 +61,13 @@ impl App {
         if self.wallet_info.is_some() {
             // Change password card
             let old_pw = text_input("Current password", &self.settings_old_password)
-                .on_input(Message::SettingsOldPasswordChanged)
+                .on_input(|s| Message::SettingsOldPasswordChanged(Zeroizing::new(s)))
                 .secure(true);
             let new_pw = text_input("New password", &self.settings_new_password)
-                .on_input(Message::SettingsNewPasswordChanged)
+                .on_input(|s| Message::SettingsNewPasswordChanged(Zeroizing::new(s)))
                 .secure(true);
             let new_pw2 = text_input("Confirm new password", &self.settings_new_password_confirm)
-                .on_input(Message::SettingsNewPasswordConfirmChanged)
+                .on_input(|s| Message::SettingsNewPasswordConfirmChanged(Zeroizing::new(s)))
                 .on_submit(Message::ChangePassword)
                 .secure(true);
 
