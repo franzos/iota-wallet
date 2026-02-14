@@ -282,13 +282,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                         }
                     }
                     Ok(Command::Password) => {
-                        print!("Change wallet password? [y/N]: ");
-                        use std::io::Write;
-                        std::io::stdout().flush().ok();
-                        let mut confirm = String::new();
-                        if std::io::stdin().read_line(&mut confirm).is_err()
-                            || confirm.trim().to_lowercase() != "y"
-                        {
+                        if !prompt_confirm("Change wallet password?") {
                             println!("Cancelled.");
                             continue;
                         }
@@ -331,15 +325,7 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                         };
 
                         if let Some(prompt_msg) = cmd.confirmation_prompt(resolved.as_ref()) {
-                            print!("{prompt_msg} [y/N]: ");
-                            use std::io::Write;
-                            std::io::stdout().flush().ok();
-                            let mut confirm = String::new();
-                            if std::io::stdin().read_line(&mut confirm).is_err() {
-                                println!("Cancelled.");
-                                continue;
-                            }
-                            if confirm.trim().to_lowercase() != "y" {
+                            if !prompt_confirm(&prompt_msg) {
                                 println!("Cancelled.");
                                 continue;
                             }
@@ -434,6 +420,15 @@ fn prompt_new_password() -> Result<Zeroizing<String>> {
         }
         return Ok(pass1);
     }
+}
+
+fn prompt_confirm(prompt: &str) -> bool {
+    use std::io::Write;
+    print!("{prompt} [y/N]: ");
+    std::io::stdout().flush().ok();
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).is_ok()
+        && input.trim().eq_ignore_ascii_case("y")
 }
 
 fn prompt_mnemonic() -> Result<Zeroizing<String>> {
