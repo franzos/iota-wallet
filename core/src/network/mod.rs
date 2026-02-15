@@ -164,13 +164,13 @@ impl NetworkClient {
         let data = self
             .execute_query(query, "Failed to query token balances")
             .await?;
-        let empty = vec![];
         let nodes = data
             .get("address")
             .and_then(|a| a.get("balances"))
             .and_then(|b| b.get("nodes"))
             .and_then(|n| n.as_array())
-            .unwrap_or(&empty);
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
 
         let mut balances = Vec::new();
         for node in nodes {

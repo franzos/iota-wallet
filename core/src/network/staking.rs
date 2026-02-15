@@ -6,6 +6,20 @@ use super::types::{StakeStatus, StakedIotaSummary, TransferResult};
 use super::NetworkClient;
 use crate::signer::Signer;
 
+/// Extract a string field from a JSON value and parse it via `FromStr`.
+fn json_str_field<T: std::str::FromStr>(node: &serde_json::Value, key: &str) -> Option<T> {
+    node.get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+}
+
+/// Extract a hex-encoded ObjectId from a JSON value.
+fn json_object_id(node: &serde_json::Value, key: &str) -> Option<ObjectId> {
+    node.get(key)
+        .and_then(|v| v.as_str())
+        .and_then(|s| ObjectId::from_hex(s).ok())
+}
+
 impl NetworkClient {
     /// Stake IOTA to a validator.
     /// Amount is in nanos (1 IOTA = 1_000_000_000 nanos).
@@ -67,38 +81,25 @@ impl NetworkClient {
         let data = self
             .execute_query(query, "Failed to query staked objects")
             .await?;
-        let empty = vec![];
         let nodes = data
             .get("address")
             .and_then(|a| a.get("stakedIotas"))
             .and_then(|s| s.get("nodes"))
             .and_then(|n| n.as_array())
-            .unwrap_or(&empty);
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
 
         let mut stakes = Vec::new();
         for node in nodes {
-            let object_id = node
-                .get("address")
-                .and_then(|v| v.as_str())
-                .and_then(|s| ObjectId::from_hex(s).ok());
-            let pool_id = node
-                .get("poolId")
-                .and_then(|v| v.as_str())
-                .and_then(|s| ObjectId::from_hex(s).ok());
-            let principal = node
-                .get("principal")
-                .and_then(|v| v.as_str())
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(0);
+            let object_id = json_object_id(node, "address");
+            let pool_id = json_object_id(node, "poolId");
+            let principal = json_str_field::<u64>(node, "principal").unwrap_or(0);
             let stake_activation_epoch = node
                 .get("activatedEpoch")
                 .and_then(|v| v.get("epochId"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            let estimated_reward = node
-                .get("estimatedReward")
-                .and_then(|v| v.as_str())
-                .and_then(|s| s.parse::<u64>().ok());
+            let estimated_reward = json_str_field::<u64>(node, "estimatedReward");
             let status = match node.get("stakeStatus").and_then(|v| v.as_str()) {
                 Some("ACTIVE") => StakeStatus::Active,
                 Some("PENDING") => StakeStatus::Pending,

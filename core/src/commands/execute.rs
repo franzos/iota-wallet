@@ -383,23 +383,26 @@ impl Command {
                     let idx = wallet.account_index();
                     let addr = wallet.address().to_string();
                     let is_hardware = wallet.is_hardware();
+                    let resolve_addr = |account_index: u64| -> String {
+                        if is_hardware {
+                            if account_index == idx {
+                                addr.clone()
+                            } else {
+                                "?".to_string()
+                            }
+                        } else {
+                            wallet
+                                .derive_address_for(account_index)
+                                .map(|a| a.to_string())
+                                .unwrap_or_default()
+                        }
+                    };
                     if json_output {
                         let known: Vec<serde_json::Value> = wallet
                             .known_accounts()
                             .iter()
                             .map(|a| {
-                                let a_addr = if is_hardware {
-                                    if a.index == idx {
-                                        addr.clone()
-                                    } else {
-                                        "?".to_string()
-                                    }
-                                } else {
-                                    wallet
-                                        .derive_address_for(a.index)
-                                        .map(|a| a.to_string())
-                                        .unwrap_or_default()
-                                };
+                                let a_addr = resolve_addr(a.index);
                                 serde_json::json!({
                                     "index": a.index,
                                     "address": a_addr,
@@ -423,18 +426,7 @@ impl Command {
                         if !known.is_empty() {
                             out.push_str("\nKnown accounts:\n");
                             for a in known {
-                                let a_addr = if is_hardware {
-                                    if a.index == idx {
-                                        addr.clone()
-                                    } else {
-                                        "?".to_string()
-                                    }
-                                } else {
-                                    wallet
-                                        .derive_address_for(a.index)
-                                        .map(|a| a.to_string())
-                                        .unwrap_or_default()
-                                };
+                                let a_addr = resolve_addr(a.index);
                                 let short = if a_addr.len() > 20 {
                                     format!("{}...{}", &a_addr[..10], &a_addr[a_addr.len() - 8..])
                                 } else {

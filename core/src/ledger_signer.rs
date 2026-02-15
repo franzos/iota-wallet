@@ -116,6 +116,7 @@ impl Signer for LedgerSigner {
             .cloned()
             .map(ledger_iota_rebased::ObjectData::try_from)
             .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!(e))
             .context("Cannot prepare object data for Ledger clear signing")?;
 
         let obj_ref = if ledger_objects.is_empty() {

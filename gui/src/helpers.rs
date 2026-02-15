@@ -1,7 +1,7 @@
 use crate::messages::Message;
 use crate::state::Screen;
 use crate::{styles, App, MUTED};
-use iced::widget::{button, column, container, row, text, Space};
+use iced::widget::{button, column, container, row, text, Column, Space};
 use iced::{Element, Fill, Font, Length, Padding};
 use iota_wallet_core::display::{format_balance, nanos_to_iota};
 use iota_wallet_core::network::{TransactionDirection, TransactionSummary};
@@ -187,5 +187,30 @@ impl App {
         }
 
         tx_col.into()
+    }
+
+    /// Append loading, error, and success status messages to a column.
+    pub(crate) fn push_status<'a>(
+        &'a self,
+        col: Column<'a, Message>,
+        loading_text: &'a str,
+    ) -> Column<'a, Message> {
+        let mut col = col;
+        if self.loading > 0 {
+            col = col.push(text(loading_text).size(13).color(MUTED));
+        }
+        if let Some(err) = &self.error_message {
+            col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
+        }
+        if let Some(msg) = &self.success_message {
+            col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
+        }
+        col
+    }
+
+    /// Build the file path for the currently selected wallet.
+    pub(crate) fn wallet_path(&self) -> std::path::PathBuf {
+        let name = self.selected_wallet.as_deref().unwrap_or("");
+        self.wallet_dir.join(format!("{name}.wallet"))
     }
 }

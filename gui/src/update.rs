@@ -103,8 +103,7 @@ impl App {
 
             // -- Unlock --
             Message::UnlockWallet => {
-                let name = self.selected_wallet.clone().unwrap_or_default();
-                let path = self.wallet_dir.join(format!("{name}.wallet"));
+                let path = self.wallet_path();
                 let pw = Zeroizing::new(self.password.as_bytes().to_vec());
                 self.session_password = pw.clone();
                 self.loading += 1;
@@ -904,8 +903,7 @@ impl App {
             }
 
             Message::AccountIndexChanged(index) => {
-                let name = self.selected_wallet.clone().unwrap_or_default();
-                let path = self.wallet_dir.join(format!("{name}.wallet"));
+                let path = self.wallet_path();
                 let pw = self.session_password.clone();
                 let is_hardware = self
                     .wallet_info
@@ -1192,8 +1190,7 @@ impl App {
                     self.error_message = Some("New passwords don't match".into());
                     return Task::none();
                 }
-                let name = self.selected_wallet.clone().unwrap_or_default();
-                let path = self.wallet_dir.join(format!("{name}.wallet"));
+                let path = self.wallet_path();
                 let old_pw = Zeroizing::new(self.settings_old_password.as_bytes().to_vec());
                 let new_pw = Zeroizing::new(self.settings_new_password.as_bytes().to_vec());
                 self.loading += 1;

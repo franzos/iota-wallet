@@ -36,23 +36,13 @@ impl App {
             SignMode::Notarize => self.view_notarize_mode(),
         };
 
-        let mut col = column![
+        let col = column![
             header,
             container(form).padding(24).width(Fill).style(styles::card),
         ]
         .spacing(16);
 
-        if self.loading > 0 {
-            col = col.push(text("Processing...").size(13).color(MUTED));
-        }
-        if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
-        }
-        if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
-        }
-
-        col.into()
+        self.push_status(col, "Processing...").into()
     }
 
     fn view_sign_mode(&self) -> Element<'_, Message> {

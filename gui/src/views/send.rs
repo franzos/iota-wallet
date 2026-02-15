@@ -91,22 +91,12 @@ impl App {
 
         let header = row![title, Space::new().width(Fill)].align_y(iced::Alignment::Center);
 
-        let mut col = column![
+        let col = column![
             header,
             container(form).padding(24).width(Fill).style(styles::card),
         ]
         .spacing(16);
 
-        if self.loading > 0 {
-            col = col.push(text("Sending...").size(13).color(MUTED));
-        }
-        if let Some(err) = &self.error_message {
-            col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
-        }
-        if let Some(msg) = &self.success_message {
-            col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
-        }
-
-        col.into()
+        self.push_status(col, "Sending...").into()
     }
 }

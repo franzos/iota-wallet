@@ -54,11 +54,11 @@ impl NetworkClient {
                 .await?;
             let objects = data.get("address").and_then(|a| a.get("objects"));
 
-            let empty = vec![];
             let nodes = objects
                 .and_then(|o| o.get("nodes"))
                 .and_then(|n| n.as_array())
-                .unwrap_or(&empty);
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             for node in nodes {
                 if let Some(nft) = Self::parse_nft_node(node) {

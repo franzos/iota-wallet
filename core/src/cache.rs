@@ -37,24 +37,31 @@ fn default_db_path() -> Result<PathBuf> {
     Ok(data_dir.join("iota-wallet").join("transactions.db"))
 }
 
+/// Create parent directories and open a SQLite connection, applying
+/// restrictive file-system permissions on Unix.
+fn open_db(path: &std::path::Path) -> Result<Connection> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("Failed to create cache directory")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    let conn = Connection::open(path).context("Failed to open transaction cache database")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(conn)
+}
+
 impl TransactionCache {
     /// Open (or create) the shared transaction cache.
     pub fn open() -> Result<Self> {
         let path = default_db_path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).context("Failed to create cache directory")?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-            }
-        }
-        let conn = Connection::open(&path).context("Failed to open transaction cache database")?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        let conn = open_db(&path)?;
         let cache = Self { conn };
         cache.init_schema()?;
         Ok(cache)
@@ -62,20 +69,7 @@ impl TransactionCache {
 
     /// Open (or create) the cache at a specific path.
     pub fn open_at(path: &std::path::Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).context("Failed to create cache directory")?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-            }
-        }
-        let conn = Connection::open(path).context("Failed to open transaction cache database")?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        }
+        let conn = open_db(path)?;
         let cache = Self { conn };
         cache.init_schema()?;
         Ok(cache)
