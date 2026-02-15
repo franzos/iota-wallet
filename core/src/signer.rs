@@ -1,5 +1,7 @@
 /// Signing abstraction that decouples transaction signing from a concrete key type.
 ///
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use base64ct::{Base64, Encoding};
 use iota_sdk::crypto::ed25519::{Ed25519PrivateKey, Ed25519VerifyingKey};
@@ -74,13 +76,14 @@ pub fn verify_message(msg: &[u8], signature_b64: &str, public_key_b64: &str) -> 
 }
 
 /// Software signer backed by an in-memory Ed25519 private key.
+/// Uses `Arc` internally so callers can share a signer without cloning key material.
 pub struct SoftwareSigner {
-    private_key: Ed25519PrivateKey,
+    private_key: Arc<Ed25519PrivateKey>,
     address: Address,
 }
 
 impl SoftwareSigner {
-    pub fn new(private_key: Ed25519PrivateKey) -> Self {
+    pub fn new(private_key: Arc<Ed25519PrivateKey>) -> Self {
         let address = private_key.public_key().derive_address();
         Self {
             private_key,
@@ -135,7 +138,7 @@ mod tests {
     fn test_signer() -> SoftwareSigner {
         let mut rng = rand::thread_rng();
         let private_key = Ed25519PrivateKey::generate(&mut rng);
-        SoftwareSigner::new(private_key)
+        SoftwareSigner::new(Arc::new(private_key))
     }
 
     #[test]

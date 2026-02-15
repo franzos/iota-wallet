@@ -215,8 +215,9 @@ impl TransactionCache {
                 Option::<String>::None, // recipient — populated later if needed
                 tx_summary.amount.map(|a| a.to_string()),
                 tx_summary.fee.map(|f| f.to_string()),
-                tx_summary.epoch as i64,
-                tx_summary.lamport_version as i64,
+                i64::try_from(tx_summary.epoch).context("epoch exceeds i64::MAX")?,
+                i64::try_from(tx_summary.lamport_version)
+                    .context("lamport version exceeds i64::MAX")?,
             ])
             .context("Failed to insert transaction")?;
         }
@@ -229,17 +230,21 @@ impl TransactionCache {
         address: &str,
         epoch: u64,
     ) -> Result<()> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
+        let now = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
+        )
+        .context("timestamp exceeds i64::MAX")?;
+        let epoch_i64 = i64::try_from(epoch).context("epoch exceeds i64::MAX")?;
         conn.execute(
             "INSERT INTO sync_state (network, address, last_epoch, last_synced_at)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (network, address) DO UPDATE SET
                  last_epoch = excluded.last_epoch,
                  last_synced_at = excluded.last_synced_at",
-            params![network, address, epoch as i64, now],
+            params![network, address, epoch_i64, now],
         )
         .context("Failed to update sync state")?;
         Ok(())
@@ -301,8 +306,8 @@ impl TransactionCache {
                     sender: row.get(2)?,
                     amount: amount.and_then(|a| a.parse::<u64>().ok()),
                     fee: fee.and_then(|f| f.parse::<u64>().ok()),
-                    epoch: epoch as u64,
-                    lamport_version: lamport as u64,
+                    epoch: u64::try_from(epoch).unwrap_or(0),
+                    lamport_version: u64::try_from(lamport).unwrap_or(0),
                 })
             })
             .context("Failed to query transactions")?;
@@ -340,7 +345,7 @@ impl TransactionCache {
             .query_map(params![network, address], |row| {
                 let epoch: i64 = row.get(0)?;
                 let delta: i64 = row.get(1)?;
-                Ok((epoch as u64, delta))
+                Ok((u64::try_from(epoch).unwrap_or(0), delta))
             })
             .context("Failed to query epoch deltas")?;
 
@@ -374,7 +379,7 @@ impl TransactionCache {
             |row| row.get::<_, i64>(0),
         );
         match result {
-            Ok(epoch) => Ok(epoch as u64),
+            Ok(epoch) => Ok(u64::try_from(epoch).unwrap_or(0)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(0),
             Err(e) => Err(e).context("Failed to query sync state"),
         }

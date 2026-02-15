@@ -1,11 +1,13 @@
 /// Wallet state — holds decrypted mnemonic, keypair, derived address, and network config.
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use anyhow::Context;
 use iota_sdk::crypto::ed25519::Ed25519PrivateKey;
 use iota_sdk::crypto::FromMnemonic;
 use iota_sdk::types::Address;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::error::{Result, WalletError};
 use crate::signer::SoftwareSigner;
@@ -47,8 +49,9 @@ pub struct AccountRecord {
 /// Serialized wallet state — what gets encrypted and stored on disk.
 #[derive(Serialize, Deserialize)]
 pub struct WalletData {
+    /// Mnemonic phrase, wrapped in `Zeroizing` so it's scrubbed from memory on drop.
     #[serde(default)]
-    pub mnemonic: Option<String>,
+    pub mnemonic: Option<Zeroizing<String>>,
     #[serde(rename = "network")]
     pub network_config: NetworkConfig,
     #[serde(default)]
@@ -60,14 +63,6 @@ pub struct WalletData {
     /// Stored address for hardware wallets (to verify on reconnect).
     #[serde(default)]
     pub address: Option<String>,
-}
-
-impl Drop for WalletData {
-    fn drop(&mut self) {
-        if let Some(ref mut m) = self.mnemonic {
-            m.zeroize();
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -106,9 +101,9 @@ impl std::fmt::Display for Network {
 }
 
 /// Generate a new 24-word BIP-39 mnemonic.
-fn generate_mnemonic() -> anyhow::Result<String> {
+fn generate_mnemonic() -> anyhow::Result<Zeroizing<String>> {
     let mnemonic = bip39::Mnemonic::generate(24).context("Failed to generate mnemonic")?;
-    Ok(mnemonic.to_string())
+    Ok(Zeroizing::new(mnemonic.to_string()))
 }
 
 /// Derive an Ed25519 keypair and address from a mnemonic + account index.
@@ -147,7 +142,8 @@ fn persist_wallet_to_file(path: &Path, data: &WalletData, password: &[u8]) -> an
 pub struct Wallet {
     data: WalletData,
     /// `None` for hardware wallets — signing happens on the device.
-    private_key: Option<Ed25519PrivateKey>,
+    /// Wrapped in `Arc` so `signer()` can share it without cloning key material.
+    private_key: Option<Arc<Ed25519PrivateKey>>,
     address: Address,
     path: PathBuf,
 }
@@ -178,7 +174,7 @@ impl Wallet {
 
         Ok(Self {
             data,
-            private_key: Some(private_key),
+            private_key: Some(Arc::new(private_key)),
             address,
             path,
         })
@@ -201,7 +197,7 @@ impl Wallet {
                 let (private_key, address) = derive_key(mnemonic, data.active_account_index)?;
                 Ok(Self {
                     data,
-                    private_key: Some(private_key),
+                    private_key: Some(Arc::new(private_key)),
                     address,
                     path: path.to_path_buf(),
                 })
@@ -235,7 +231,7 @@ impl Wallet {
         let (private_key, address) = derive_key(mnemonic, 0)?;
 
         let data = WalletData {
-            mnemonic: Some(mnemonic.to_string()),
+            mnemonic: Some(Zeroizing::new(mnemonic.to_string())),
             network_config,
             active_account_index: 0,
             accounts: vec![AccountRecord {
@@ -250,7 +246,7 @@ impl Wallet {
 
         Ok(Self {
             data,
-            private_key: Some(private_key),
+            private_key: Some(Arc::new(private_key)),
             address,
             path,
         })
@@ -311,7 +307,7 @@ impl Wallet {
                     WalletError::InvalidState("Software wallet is missing its mnemonic.".into())
                 })?;
                 let (private_key, address) = derive_key(mnemonic, index)?;
-                self.private_key = Some(private_key);
+                self.private_key = Some(Arc::new(private_key));
                 self.address = address;
             }
             WalletType::Hardware(_) => {
@@ -361,7 +357,8 @@ impl Wallet {
         }
     }
 
-    /// Build a software signer. Returns an error if called on a hardware wallet.
+    /// Build a software signer. Clones the inner `Arc` — no key material is copied.
+    /// Returns an error if called on a hardware wallet.
     pub fn signer(&self) -> Result<SoftwareSigner> {
         let key = self.private_key.clone().ok_or_else(|| {
             WalletError::InvalidState("Cannot build software signer for a hardware wallet.".into())
@@ -370,7 +367,7 @@ impl Wallet {
     }
 
     pub fn mnemonic(&self) -> Option<&str> {
-        self.data.mnemonic.as_deref()
+        self.data.mnemonic.as_ref().map(|z| z.as_str())
     }
 
     pub fn wallet_type(&self) -> &WalletType {
@@ -403,10 +400,10 @@ impl Wallet {
 
 impl Drop for Wallet {
     fn drop(&mut self) {
-        // WalletData.mnemonic is zeroized via WalletData's Drop impl.
+        // WalletData.mnemonic is zeroized via Zeroizing<String>'s Drop impl.
         // Ed25519PrivateKey wraps ed25519_dalek::SigningKey, which zeroizes its
-        // key material on drop (via ed25519-dalek's Drop impl that calls zeroize).
-        // The SDK wrapper does not re-export Zeroize, but the underlying key is safe.
+        // key material on drop. The Arc ensures only one copy exists; when the
+        // last reference is dropped the key material is zeroized.
     }
 }
 
