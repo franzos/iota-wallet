@@ -1,3 +1,30 @@
+## [0.1.7] - 2026-02-15
+
+### Changed
+- Deduplicated helpers across cache, network, commands, and GUI views
+- Ledger implementation abstracted for better maintainability
+
+### Fixed
+- Ledger reconnection when device goes to standby or disconnects
+- Session password updated in GUI after password change
+- Token metadata fetched in parallel for non-IOTA tokens
+- Memory safety hardened for key material and integer conversions
+
+## [0.1.6] - 2026-02-14
+
+### Added
+- Ledger hardware wallet support
+- Ledger message signing
+- Short password warnings
+- Typed error handling (`WalletError`)
+- Atomic transaction cache sync with integration tests
+
+### Changed
+- Network name derived from client instead of stored in service
+
+### Fixed
+- Integer overflow prevention in cache operations
+
 ## [0.1.5] - 2026-02-12
 
 ### Added
