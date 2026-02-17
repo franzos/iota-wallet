@@ -122,6 +122,7 @@ pub(crate) enum Message {
 
     // Settings
     NetworkChanged(Network),
+    HistoryLookbackChanged(u64),
     SettingsOldPasswordChanged(Zeroizing<String>),
     SettingsNewPasswordChanged(Zeroizing<String>),
     SettingsNewPasswordConfirmChanged(Zeroizing<String>),

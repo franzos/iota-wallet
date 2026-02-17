@@ -1149,6 +1149,11 @@ impl App {
                 Task::none()
             }
 
+            Message::HistoryLookbackChanged(epochs) => {
+                self.history_lookback = epochs;
+                return self.refresh_dashboard();
+            }
+
             Message::NetworkChanged(network) => {
                 let config = NetworkConfig {
                     network,
@@ -1345,6 +1350,7 @@ impl App {
         let svc3 = info.service.clone();
         let network_name = info.service.network_name().to_string();
         let address_str = info.address.to_string();
+        let lookback = self.history_lookback;
 
         Task::batch([
             Task::perform(async move { svc1.balance().await }, |r: Result<u64, _>| {
@@ -1352,7 +1358,7 @@ impl App {
             }),
             Task::perform(
                 async move {
-                    svc2.sync_transactions().await?;
+                    svc2.sync_transactions(lookback).await?;
                     let cache = TransactionCache::open()?;
                     let page =
                         cache.query(&network_name, &address_str, &TransactionFilter::All, 25, 0)?;

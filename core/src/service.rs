@@ -128,10 +128,10 @@ impl WalletService {
             .await?)
     }
 
-    pub async fn sync_transactions(&self) -> Result<()> {
+    pub async fn sync_transactions(&self, lookback_epochs: u64) -> Result<()> {
         Ok(self
             .network
-            .sync_transactions(self.signer.address())
+            .sync_transactions(self.signer.address(), lookback_epochs)
             .await?)
     }
 

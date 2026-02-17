@@ -101,6 +101,9 @@ struct App {
     settings_new_password: Zeroizing<String>,
     settings_new_password_confirm: Zeroizing<String>,
 
+    // History lookback (epochs)
+    history_lookback: u64,
+
     // UI state
     loading: u32,
     error_message: Option<String>,
@@ -266,6 +269,7 @@ impl App {
             token_balances: Vec::new(),
             token_meta: Vec::new(),
             selected_token: None,
+            history_lookback: 7,
             nfts: Vec::new(),
             send_nft_object_id: None,
             send_nft_recipient: String::new(),

@@ -93,16 +93,22 @@ impl NetworkClient {
     /// Opens the cache internally so no `&TransactionCache` is held across
     /// await points (Connection is Send but not Sync).
     ///
-    /// Fetches up to 7 epochs of history on first sync. On subsequent syncs,
-    /// stops as soon as it hits transactions already in the cache.
-    pub async fn sync_transactions(&self, address: &iota_sdk::types::Address) -> Result<()> {
+    /// Fetches up to `lookback_epochs` of history. Already-cached transactions
+    /// are skipped but don't stop pagination (the window may have widened).
+    pub async fn sync_transactions(
+        &self,
+        address: &iota_sdk::types::Address,
+        lookback_epochs: u64,
+    ) -> Result<()> {
         let network_str = self.network.to_string();
         let address_str = address.to_string();
 
-        // Phase 1: read known digests from cache (sync, then drop)
-        let known = {
+        // Phase 1: read known digests + last sync point from cache (sync, then drop)
+        let (known, last_synced_epoch) = {
             let cache = TransactionCache::open()?;
-            cache.known_digests(&network_str, &address_str)?
+            let k = cache.known_digests(&network_str, &address_str)?;
+            let e = cache.get_sync_epoch(&network_str, &address_str)?;
+            (k, e)
         };
 
         // Phase 2: fetch from network (async — no cache held)
@@ -114,7 +120,7 @@ impl NetworkClient {
             .context("No epoch data available")?
             .epoch_id;
 
-        let min_epoch = current_epoch.saturating_sub(7);
+        let min_epoch = sync_min_epoch(current_epoch, lookback_epochs, last_synced_epoch);
 
         let (sent, recv) = futures::try_join!(
             self.fetch_paginated(
@@ -185,11 +191,9 @@ impl NetworkClient {
                     continue;
                 }
 
-                // Skip already-known transactions, but keep processing the
-                // page — items are in chronological order so new transactions
-                // may appear after known ones within the same page.
+                // Skip already-known transactions (dedup only — don't stop
+                // pagination, since the lookback window may have widened).
                 if known.contains(&digest) {
-                    hit_boundary = true;
                     continue;
                 }
 
@@ -244,5 +248,70 @@ impl NetworkClient {
             amount,
             fee,
         })
+    }
+}
+
+/// Compute the oldest epoch to fetch, bridging any gap between the last
+/// sync point and the current lookback window.
+///
+/// `last_synced_epoch` is the `current_epoch` recorded during the previous
+/// sync (0 means "never synced").
+fn sync_min_epoch(current_epoch: u64, lookback_epochs: u64, last_synced_epoch: u64) -> u64 {
+    let window_min = current_epoch.saturating_sub(lookback_epochs);
+    if last_synced_epoch > 0 && last_synced_epoch < window_min {
+        last_synced_epoch
+    } else {
+        window_min
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sync_min_epoch;
+
+    #[test]
+    fn first_sync() {
+        // Never synced before — use the lookback window as-is
+        assert_eq!(sync_min_epoch(100, 7, 0), 93);
+    }
+
+    #[test]
+    fn first_sync_short_history() {
+        // Current epoch smaller than lookback — saturates to 0
+        assert_eq!(sync_min_epoch(3, 7, 0), 0);
+    }
+
+    #[test]
+    fn no_gap() {
+        // Last sync is recent, falls within the lookback window
+        assert_eq!(sync_min_epoch(15, 7, 14), 8);
+    }
+
+    #[test]
+    fn bridge_gap() {
+        // Offline gap: last sync at epoch 3, now at 14 with 7-day lookback.
+        // window_min would be 7, but we need to go back to 3 to fill 4–6.
+        assert_eq!(sync_min_epoch(14, 7, 3), 3);
+    }
+
+    #[test]
+    fn bridge_long_absence() {
+        // Synced at epoch 3, now at 100 with 7-day lookback.
+        // Bridges all the way back to the last sync point.
+        assert_eq!(sync_min_epoch(100, 7, 3), 3);
+    }
+
+    #[test]
+    fn widened_window_no_bridge_needed() {
+        // Synced at epoch 100 with lookback 7, now at 101 with lookback 30.
+        // last_synced (100) > window_min (71) — no gap to bridge.
+        // (fetch_paginated handles the wider window by paging past known txs.)
+        assert_eq!(sync_min_epoch(101, 30, 100), 71);
+    }
+
+    #[test]
+    fn last_synced_exactly_at_window_min() {
+        // Edge case: last_synced == window_min — no gap
+        assert_eq!(sync_min_epoch(100, 7, 93), 93);
     }
 }

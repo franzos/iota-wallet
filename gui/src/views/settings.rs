@@ -46,11 +46,43 @@ impl App {
             );
         }
 
+        // -- History lookback --
+        let lookback_btn = |label: &'static str, epochs: u64| -> Element<Message> {
+            let active = self.history_lookback == epochs;
+            button(text(label).size(13))
+                .padding([8, 16])
+                .style(styles::toggle_btn(active))
+                .on_press(Message::HistoryLookbackChanged(epochs))
+                .into()
+        };
+
+        let lookback_row = row![
+            lookback_btn("1 week", 7),
+            lookback_btn("1 month", 30),
+            lookback_btn("3 months", 90),
+            lookback_btn("1 year", 365),
+        ]
+        .spacing(8);
+
+        let history_content = column![
+            text("History").size(16),
+            Space::new().height(4),
+            lookback_row,
+            text("How far back to sync transaction history.")
+                .size(12)
+                .color(MUTED),
+        ]
+        .spacing(4);
+
         let header = row![title, Space::new().width(Fill)].align_y(iced::Alignment::Center);
 
         let mut col = column![
             header,
             container(network_content)
+                .padding(24)
+                .max_width(500)
+                .style(styles::card),
+            container(history_content)
                 .padding(24)
                 .max_width(500)
                 .style(styles::card),

@@ -171,7 +171,7 @@ impl Command {
             }
 
             Command::ShowTransfers { filter } => {
-                service.sync_transactions().await?;
+                service.sync_transactions(7).await?;
                 let txs = {
                     let cache = TransactionCache::open()?;
                     let network_str = service.network_name();
