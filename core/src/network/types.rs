@@ -36,6 +36,18 @@ pub struct StakedIotaSummary {
     pub stake_activation_epoch: u64,
     pub estimated_reward: Option<u64>,
     pub status: StakeStatus,
+    pub validator_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ValidatorSummary {
+    pub address: String,
+    pub name: String,
+    pub staking_pool_id: ObjectId,
+    pub commission_rate: u32,
+    pub apy: u32,
+    pub staking_pool_iota_balance: u64,
+    pub image_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]

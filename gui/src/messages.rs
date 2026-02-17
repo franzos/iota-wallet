@@ -1,7 +1,7 @@
 use crate::state::{Screen, SignMode, WalletInfo};
 use crate::TokenOption;
 use iota_wallet_core::network::{
-    CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary,
+    CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary, ValidatorSummary,
 };
 use iota_wallet_core::wallet::Network;
 use iota_wallet_core::SignedMessage;
@@ -90,6 +90,8 @@ pub(crate) enum Message {
     ConfirmUnstake(String),
     UnstakeCompleted(Result<String, String>),
     StakesLoaded(Result<Vec<StakedIotaSummary>, String>),
+    ValidatorsLoaded(Result<Vec<ValidatorSummary>, String>),
+    SelectValidator(usize),
     RefreshStakes,
 
     // NFTs

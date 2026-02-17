@@ -7,6 +7,7 @@ use iota_wallet_core::cache::TransactionCache;
 use iota_wallet_core::display::{parse_iota_amount, parse_token_amount};
 use iota_wallet_core::network::{
     CoinMeta, NetworkClient, NftSummary, StakedIotaSummary, TokenBalance, TransactionFilter,
+    ValidatorSummary,
 };
 use iota_wallet_core::service::WalletService;
 use iota_wallet_core::wallet::{Network, NetworkConfig, Wallet};
@@ -32,6 +33,7 @@ impl App {
                     self.epoch_deltas.clear();
                     self.balance_chart.clear();
                     self.stakes.clear();
+                    self.validators.clear();
                     self.nfts.clear();
                     self.token_balances.clear();
                     self.token_meta.clear();
@@ -41,7 +43,7 @@ impl App {
                 let load_nfts = screen == Screen::Nfts;
                 self.screen = screen;
                 if load_stakes {
-                    return self.load_stakes();
+                    return Task::batch([self.load_stakes(), self.load_validators()]);
                 }
                 if load_nfts {
                     return self.load_nfts();
@@ -713,7 +715,7 @@ impl App {
                 self.stake_amount = v;
                 Task::none()
             }
-            Message::RefreshStakes => self.load_stakes(),
+            Message::RefreshStakes => Task::batch([self.load_stakes(), self.load_validators()]),
 
             Message::ConfirmStake => {
                 let Some(info) = &self.wallet_info else {
@@ -809,8 +811,31 @@ impl App {
             Message::StakesLoaded(result) => {
                 self.loading = self.loading.saturating_sub(1);
                 match result {
-                    Ok(s) => self.stakes = s,
+                    Ok(mut s) => {
+                        Self::resolve_validator_names(&mut s, &self.validators);
+                        self.stakes = s;
+                    }
                     Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
+            Message::ValidatorsLoaded(result) => {
+                self.loading = self.loading.saturating_sub(1);
+                match result {
+                    Ok(v) => {
+                        self.validators = v;
+                        Self::resolve_validator_names(&mut self.stakes, &self.validators);
+                    }
+                    Err(e) => self.error_message = Some(e),
+                }
+                Task::none()
+            }
+
+            Message::SelectValidator(idx) => {
+                if let Some(v) = self.validators.get(idx) {
+                    self.validator_address = v.address.clone();
+                    self.resolved_validator = None;
                 }
                 Task::none()
             }
@@ -985,6 +1010,7 @@ impl App {
                         self.epoch_deltas.clear();
                         self.balance_chart.clear();
                         self.stakes.clear();
+                        self.validators.clear();
                         self.nfts.clear();
                         self.token_balances.clear();
                         self.token_meta.clear();
@@ -1165,6 +1191,7 @@ impl App {
                 self.epoch_deltas.clear();
                 self.balance_chart.clear();
                 self.stakes.clear();
+                self.validators.clear();
                 self.nfts.clear();
                 self.token_balances.clear();
                 self.token_meta.clear();
@@ -1440,5 +1467,37 @@ impl App {
                 Message::StakesLoaded(r.map_err(|e| e.to_string()))
             },
         )
+    }
+
+    fn load_validators(&mut self) -> Task<Message> {
+        let Some(info) = &self.wallet_info else {
+            return Task::none();
+        };
+        self.loading += 1;
+        let service = info.service.clone();
+
+        Task::perform(
+            async move { service.get_validators().await },
+            |r: Result<Vec<ValidatorSummary>, _>| {
+                Message::ValidatorsLoaded(r.map_err(|e| e.to_string()))
+            },
+        )
+    }
+
+    fn resolve_validator_names(
+        stakes: &mut [StakedIotaSummary],
+        validators: &[ValidatorSummary],
+    ) {
+        if validators.is_empty() {
+            return;
+        }
+        for stake in stakes.iter_mut() {
+            if stake.validator_name.is_none() {
+                stake.validator_name = validators
+                    .iter()
+                    .find(|v| v.staking_pool_id == stake.pool_id)
+                    .map(|v| v.name.clone());
+            }
+        }
     }
 }

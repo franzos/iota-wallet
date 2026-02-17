@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use iota_sdk::transaction_builder::TransactionBuilder;
 use iota_sdk::types::{Address, ObjectId};
 
-use super::types::{StakeStatus, StakedIotaSummary, TransferResult};
+use super::types::{StakeStatus, StakedIotaSummary, TransferResult, ValidatorSummary};
 use super::NetworkClient;
 use crate::signer::Signer;
 
@@ -114,10 +114,121 @@ impl NetworkClient {
                     stake_activation_epoch,
                     estimated_reward,
                     status,
+                    validator_name: None,
                 });
             }
         }
 
         Ok(stakes)
+    }
+
+    /// Fetch the full list of active validators from the current epoch,
+    /// paginating in batches of 50.
+    pub async fn get_validators(&self) -> Result<Vec<ValidatorSummary>> {
+        let mut validators = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let after = match &cursor {
+                Some(c) => format!(r#", after: "{}""#, c),
+                None => String::new(),
+            };
+
+            let query_str = format!(
+                r#"query {{
+                    epoch {{
+                        validatorSet {{
+                            activeValidators(first: 50{after}) {{
+                                pageInfo {{ hasNextPage endCursor }}
+                                nodes {{
+                                    address {{ address }}
+                                    name
+                                    stakingPoolId
+                                    commissionRate
+                                    apy
+                                    stakingPoolIotaBalance
+                                    imageUrl
+                                }}
+                            }}
+                        }}
+                    }}
+                }}"#
+            );
+
+            let query = serde_json::json!({ "query": query_str });
+            let data = self
+                .execute_query(query, "Failed to query validators")
+                .await?;
+
+            let active = data
+                .get("epoch")
+                .and_then(|e| e.get("validatorSet"))
+                .and_then(|vs| vs.get("activeValidators"));
+
+            let nodes = active
+                .and_then(|a| a.get("nodes"))
+                .and_then(|n| n.as_array())
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+
+            for node in nodes {
+                let address = node
+                    .get("address")
+                    .and_then(|a| a.get("address"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = node
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let staking_pool_id = json_object_id(node, "stakingPoolId");
+                let commission_rate = node
+                    .get("commissionRate")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+                let apy = node
+                    .get("apy")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+                let staking_pool_iota_balance =
+                    json_str_field::<u64>(node, "stakingPoolIotaBalance").unwrap_or(0);
+                let image_url = node
+                    .get("imageUrl")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                if let Some(staking_pool_id) = staking_pool_id {
+                    validators.push(ValidatorSummary {
+                        address,
+                        name,
+                        staking_pool_id,
+                        commission_rate,
+                        apy,
+                        staking_pool_iota_balance,
+                        image_url,
+                    });
+                }
+            }
+
+            let has_next = active
+                .and_then(|a| a.get("pageInfo"))
+                .and_then(|pi| pi.get("hasNextPage"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if has_next {
+                cursor = active
+                    .and_then(|a| a.get("pageInfo"))
+                    .and_then(|pi| pi.get("endCursor"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+
+        Ok(validators)
     }
 }

@@ -17,7 +17,7 @@ use zeroize::Zeroizing;
 
 use iota_wallet_core::display::{format_balance, format_balance_with_symbol};
 use iota_wallet_core::network::{
-    CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary,
+    CoinMeta, NftSummary, StakedIotaSummary, TokenBalance, TransactionSummary, ValidatorSummary,
 };
 use iota_wallet_core::wallet::{Network, NetworkConfig};
 use iota_wallet_core::SignedMessage;
@@ -82,6 +82,7 @@ struct App {
 
     // Staking
     stakes: Vec<StakedIotaSummary>,
+    validators: Vec<ValidatorSummary>,
     validator_address: String,
     stake_amount: String,
 
@@ -249,6 +250,7 @@ impl App {
             resolved_recipient: None,
             resolved_validator: None,
             stakes: Vec::new(),
+            validators: Vec::new(),
             validator_address: String::new(),
             stake_amount: String::new(),
             sign_message_input: String::new(),

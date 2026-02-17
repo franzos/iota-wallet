@@ -6,7 +6,7 @@ use iota_sdk::types::{Address, Digest, ObjectId};
 use crate::error::{Result, WalletError};
 use crate::network::{
     CoinMeta, NetworkClient, NetworkStatus, NftSummary, StakedIotaSummary, TokenBalance,
-    TransactionDetailsSummary, TransferResult,
+    TransactionDetailsSummary, TransferResult, ValidatorSummary,
 };
 use crate::recipient::{Recipient, ResolvedRecipient};
 use crate::signer::{SignedMessage, Signer};
@@ -99,6 +99,10 @@ impl WalletService {
 
     pub async fn get_stakes(&self) -> Result<Vec<StakedIotaSummary>> {
         Ok(self.network.get_stakes(self.signer.address()).await?)
+    }
+
+    pub async fn get_validators(&self) -> Result<Vec<ValidatorSummary>> {
+        Ok(self.network.get_validators().await?)
     }
 
     pub async fn get_token_balances(&self) -> Result<Vec<TokenBalance>> {

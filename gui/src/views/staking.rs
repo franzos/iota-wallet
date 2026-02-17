@@ -1,6 +1,6 @@
 use crate::messages::Message;
 use crate::{styles, App, MUTED};
-use iced::widget::{button, column, container, row, text, text_input, Space};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
 use iced::{Element, Fill, Length};
 use iota_wallet_core::display::format_balance;
 use iota_wallet_core::network::StakeStatus;
@@ -30,6 +30,10 @@ impl App {
             stakes_content = stakes_content.push(text("No active stakes.").size(14).color(MUTED));
         } else {
             let header = row![
+                text("Validator")
+                    .size(11)
+                    .color(MUTED)
+                    .width(Length::Fixed(120.0)),
                 text("Principal")
                     .size(11)
                     .color(MUTED)
@@ -73,7 +77,22 @@ impl App {
                     StakeStatus::Unstaked => MUTED,
                 };
 
+                let validator_label = match &stake.validator_name {
+                    Some(name) => name.clone(),
+                    None => {
+                        let id = stake.pool_id.to_string();
+                        if id.len() > 10 {
+                            format!("{}..{}", &id[..6], &id[id.len() - 4..])
+                        } else {
+                            id
+                        }
+                    }
+                };
+
                 let mut stake_row = row![
+                    text(validator_label)
+                        .size(12)
+                        .width(Length::Fixed(120.0)),
                     text(format_balance(stake.principal))
                         .size(12)
                         .width(Length::Fixed(110.0)),
@@ -161,6 +180,84 @@ impl App {
         if let Some(hint) = resolved_hint {
             form_content = form_content.push(hint);
         }
+
+        // -- Validator picker --
+        if !self.validators.is_empty() {
+            form_content = form_content.push(Space::new().height(4));
+            form_content =
+                form_content.push(text("Or select a validator:").size(12).color(MUTED));
+
+            let mut picker_col = column![].spacing(2);
+
+            // Header row
+            let picker_header = row![
+                text("Name")
+                    .size(10)
+                    .color(MUTED)
+                    .width(Length::Fixed(140.0)),
+                text("APY")
+                    .size(10)
+                    .color(MUTED)
+                    .width(Length::Fixed(60.0)),
+                text("Commission")
+                    .size(10)
+                    .color(MUTED)
+                    .width(Length::Fixed(80.0)),
+                text("Pool Balance")
+                    .size(10)
+                    .color(MUTED)
+                    .width(Length::Fixed(110.0)),
+            ]
+            .spacing(8);
+            picker_col = picker_col.push(picker_header);
+
+            for (i, v) in self.validators.iter().enumerate() {
+                let apy_display = format!("{:.2}%", v.apy as f64 / 100.0);
+                let commission_display = format!("{:.1}%", v.commission_rate as f64 / 100.0);
+                let pool_iota = v.staking_pool_iota_balance / 1_000_000_000;
+                let pool_balance = format!("{pool_iota} IOTA");
+
+                let name_display = if v.name.len() > 18 {
+                    format!("{}...", &v.name[..16])
+                } else {
+                    v.name.clone()
+                };
+
+                let is_selected = self.validator_address == v.address;
+                let style = if is_selected {
+                    styles::btn_primary
+                } else {
+                    styles::btn_ghost
+                };
+
+                let row_content = row![
+                    text(name_display).size(11).width(Length::Fixed(140.0)),
+                    text(apy_display).size(11).width(Length::Fixed(60.0)),
+                    text(commission_display)
+                        .size(11)
+                        .width(Length::Fixed(80.0)),
+                    text(pool_balance).size(11).width(Length::Fixed(110.0)),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center);
+
+                let btn = button(row_content)
+                    .padding([4, 8])
+                    .width(Fill)
+                    .style(style)
+                    .on_press(Message::SelectValidator(i));
+
+                picker_col = picker_col.push(btn);
+            }
+
+            let picker_scroll = scrollable(picker_col).height(Length::Fixed(180.0));
+            form_content = form_content.push(picker_scroll);
+        } else if self.loading > 0 {
+            form_content = form_content.push(Space::new().height(4));
+            form_content =
+                form_content.push(text("Loading validators...").size(11).color(MUTED));
+        }
+
         form_content = form_content
             .push(Space::new().height(4))
             .push(text("Amount").size(12).color(MUTED))
