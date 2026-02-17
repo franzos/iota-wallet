@@ -3,7 +3,7 @@ use crate::state::Screen;
 use crate::{styles, App, MUTED};
 use iced::widget::{button, column, row, svg, text, Space};
 use iced::{Element, Fill, Length};
-use iota_wallet_core::wallet::{Network, WalletType};
+use iota_wallet_core::wallet::{HardwareKind, Network, WalletType};
 
 impl App {
     pub(crate) fn view_wallet_select(&self) -> Element<'_, Message> {
@@ -40,12 +40,16 @@ impl App {
             col = col.push(text("Select a wallet:").size(16));
             for entry in &self.wallet_entries {
                 let n = entry.name.clone();
-                let label = match entry.wallet_type {
-                    WalletType::Hardware(kind) => format!("{} ({kind})", entry.name),
-                    WalletType::Software => entry.name.clone(),
-                };
+                let mut btn_row = row![text(&entry.name).size(14)]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center)
+                    .width(Fill);
+                if let WalletType::Hardware(kind) = entry.wallet_type {
+                    btn_row = btn_row.push(Space::new().width(Fill));
+                    btn_row = btn_row.push(hardware_icon(kind));
+                }
                 col = col.push(
-                    button(text(label).size(14))
+                    button(btn_row)
                         .on_press(Message::WalletSelected(n))
                         .padding([10, 16])
                         .style(styles::btn_secondary)
@@ -72,7 +76,7 @@ impl App {
         #[cfg(feature = "hardware-wallets")]
         {
             action_row = action_row.push(
-                button(text("Connect Hardware Wallet").size(14))
+                button(text("Hardware Wallet").size(14))
                     .padding([10, 20])
                     .style(styles::btn_secondary)
                     .on_press(Message::GoTo(Screen::HardwareConnect)),
@@ -82,5 +86,19 @@ impl App {
         col = col.push(action_row);
 
         col.into()
+    }
+}
+
+fn hardware_icon(kind: HardwareKind) -> Element<'static, Message> {
+    match kind {
+        HardwareKind::Ledger => svg(svg::Handle::from_memory(include_bytes!(
+            "../../assets/ledger-logo.svg"
+        )))
+        .width(Length::Fixed(16.0))
+        .height(Length::Fixed(16.0))
+        .style(|_theme, _status| svg::Style {
+            color: Some(iced::Color::WHITE),
+        })
+        .into(),
     }
 }

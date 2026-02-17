@@ -7,7 +7,7 @@ use zeroize::Zeroizing;
 
 impl App {
     pub(crate) fn view_hardware_connect(&self) -> Element<'_, Message> {
-        let title = text("Connect Hardware Wallet").size(20);
+        let title = text("Hardware Wallet").size(20);
         let back = button(text("Back").size(12))
             .padding([6, 14])
             .style(styles::btn_ghost)

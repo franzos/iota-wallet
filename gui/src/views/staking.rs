@@ -9,21 +9,20 @@ impl App {
     pub(crate) fn view_staking(&self) -> Element<'_, Message> {
         let title = text("Staking").size(24);
 
-        let header = row![title, Space::new().width(Fill)].align_y(iced::Alignment::Center);
-
-        let mut col = column![header].spacing(16);
-
-        // -- Active stakes card --
-        let mut stakes_content = column![row![
-            text("Active Stakes").size(16),
+        let header = row![
+            title,
             Space::new().width(Fill),
             button(text("Refresh").size(13))
                 .padding([8, 16])
                 .style(styles::btn_secondary)
                 .on_press(Message::RefreshStakes),
         ]
-        .align_y(iced::Alignment::Center),]
-        .spacing(12);
+        .align_y(iced::Alignment::Center);
+
+        let mut col = column![header].spacing(16);
+
+        // -- Active stakes card --
+        let mut stakes_content = column![text("Active Stakes").size(16)].spacing(12);
 
         if self.loading > 0 && self.stakes.is_empty() {
             stakes_content = stakes_content.push(text("Loading...").size(14).color(MUTED));
