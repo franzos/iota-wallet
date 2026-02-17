@@ -1,3 +1,21 @@
+## [0.1.9] - 2026-02-17
+
+### Added
+- Configurable synchronization
+- IOTA logo on wallet GUI main screen
+
+### Changed
+- Default network set to mainnet; welcome screen selection is now sticky
+- Improved wallet GUI welcome and staking screens
+
+### Fixed
+- Clippy warnings cleaned up
+
+## [0.1.8] - 2026-02-15
+
+### Changed
+- Updated dependencies
+
 ## [0.1.7] - 2026-02-15
 
 ### Changed
