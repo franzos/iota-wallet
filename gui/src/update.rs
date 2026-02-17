@@ -148,7 +148,29 @@ impl App {
             Message::WalletOpened(result) => {
                 self.loading = self.loading.saturating_sub(1);
                 match result {
-                    Ok(info) => {
+                    Ok(mut info) => {
+                        // Apply the network selected on the welcome screen
+                        if info.network_config.network != self.network_config.network {
+                            let config = self.network_config.clone();
+                            info.network_config = config.clone();
+                            info.is_mainnet = config.network == Network::Mainnet;
+                            match NetworkClient::new(&config, false) {
+                                Ok(client) => {
+                                    let signer = info.service.signer().clone();
+                                    let service = WalletService::new(client, signer)
+                                        .with_notarization_package(
+                                            info.notarization_package_config,
+                                        );
+                                    info.notarization_package = service.notarization_package();
+                                    info.service = Arc::new(service);
+                                }
+                                Err(e) => {
+                                    self.error_message =
+                                        Some(format!("Failed to switch network: {e}"));
+                                    return Task::none();
+                                }
+                            }
+                        }
                         self.qr_data = qr_code::Data::new(&info.address_string).ok();
                         self.wallet_info = Some(info);
                         self.clear_form();

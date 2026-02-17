@@ -293,12 +293,12 @@ impl App {
 
     fn parse_network_from_args() -> NetworkConfig {
         let args: Vec<String> = std::env::args().collect();
-        let network = if args.iter().any(|a| a == "--mainnet") {
-            Network::Mainnet
+        let network = if args.iter().any(|a| a == "--testnet") {
+            Network::Testnet
         } else if args.iter().any(|a| a == "--devnet") {
             Network::Devnet
         } else {
-            Network::Testnet
+            Network::Mainnet
         };
         NetworkConfig {
             network,
