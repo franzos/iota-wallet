@@ -8,7 +8,7 @@ mod views;
 
 use iced::theme::Palette;
 use iced::widget::{
-    button, column, container, pick_list, qr_code, row, scrollable, text, text_input, Space,
+    button, column, container, pick_list, qr_code, row, scrollable, svg, text, text_input, Space,
 };
 use iced::{Color, Element, Fill, Font, Length, Task, Theme};
 
@@ -421,7 +421,18 @@ impl App {
         .style(styles::btn_ghost)
         .on_press(Message::GoTo(Screen::WalletSelect));
 
+        let logo = svg(svg::Handle::from_memory(include_bytes!(
+            "../assets/iota-logo.svg",
+        )))
+        .width(Length::Fixed(100.0));
+
         let col = column![
+            container(logo).padding(iced::Padding {
+                top: 8.0,
+                right: 14.0,
+                bottom: 12.0,
+                left: 14.0,
+            }),
             nav,
             Space::new().height(Fill),
             styles::separator(),
