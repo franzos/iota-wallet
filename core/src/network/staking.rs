@@ -137,6 +137,7 @@ impl NetworkClient {
             let query_str = format!(
                 r#"query {{
                     epoch {{
+                        epochId
                         validatorSet {{
                             activeValidators(first: 50{after}) {{
                                 pageInfo {{ hasNextPage endCursor }}
@@ -144,6 +145,7 @@ impl NetworkClient {
                                     address {{ address }}
                                     name
                                     stakingPoolId
+                                    stakingPoolActivationEpoch
                                     commissionRate
                                     apy
                                     stakingPoolIotaBalance
@@ -160,8 +162,13 @@ impl NetworkClient {
                 .execute_query(query, "Failed to query validators")
                 .await?;
 
-            let active = data
-                .get("epoch")
+            let epoch_data = data.get("epoch");
+            let current_epoch = epoch_data
+                .and_then(|e| e.get("epochId"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+
+            let active = epoch_data
                 .and_then(|e| e.get("validatorSet"))
                 .and_then(|vs| vs.get("activeValidators"));
 
@@ -184,6 +191,10 @@ impl NetworkClient {
                     .unwrap_or("")
                     .to_string();
                 let staking_pool_id = json_object_id(node, "stakingPoolId");
+                let activation_epoch = node
+                    .get("stakingPoolActivationEpoch")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 let commission_rate = node
                     .get("commissionRate")
                     .and_then(|v| v.as_u64())
@@ -198,6 +209,7 @@ impl NetworkClient {
                     .get("imageUrl")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                let age_epochs = current_epoch.saturating_sub(activation_epoch);
 
                 if let Some(staking_pool_id) = staking_pool_id {
                     validators.push(ValidatorSummary {
@@ -208,6 +220,7 @@ impl NetworkClient {
                         apy,
                         staking_pool_iota_balance,
                         image_url,
+                        age_epochs,
                     });
                 }
             }
@@ -228,6 +241,12 @@ impl NetworkClient {
                 break;
             }
         }
+
+        validators.sort_by(|a, b| {
+            b.age_epochs
+                .cmp(&a.age_epochs)
+                .then(b.staking_pool_iota_balance.cmp(&a.staking_pool_iota_balance))
+        });
 
         Ok(validators)
     }

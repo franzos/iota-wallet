@@ -683,34 +683,20 @@ impl App {
                 Task::none()
             }
 
-            // -- Staking --
-            Message::ValidatorResolved(result) => {
-                self.resolved_validator = Some(result);
+            Message::OpenExplorerAddress(addr) => {
+                let network = self.wallet_info.as_ref().map(|i| &i.network_config.network);
+                let query = match network {
+                    Some(Network::Mainnet) | None => "",
+                    Some(Network::Testnet) => "?network=testnet",
+                    Some(Network::Devnet) => "?network=devnet",
+                    Some(Network::Custom) => "?network=testnet",
+                };
+                let url = format!("https://explorer.iota.org/address/{addr}{query}");
+                let _ = open::that(&url);
                 Task::none()
             }
 
-            Message::ValidatorAddressChanged(v) => {
-                self.validator_address = v.clone();
-                self.resolved_validator = None;
-                // Trigger async resolution for .iota names
-                if v.ends_with(".iota") && v.len() > 5 {
-                    if let Some(info) = &self.wallet_info {
-                        let service = info.service.clone();
-                        let name = v;
-                        return Task::perform(
-                            async move {
-                                let r = Recipient::Name(name.to_lowercase());
-                                let resolved = service.resolve_recipient(&r).await?;
-                                Ok(resolved.address.to_string())
-                            },
-                            |r: Result<String, anyhow::Error>| {
-                                Message::ValidatorResolved(r.map_err(|e| e.to_string()))
-                            },
-                        );
-                    }
-                }
-                Task::none()
-            }
+            // -- Staking --
             Message::StakeAmountChanged(v) => {
                 self.stake_amount = v;
                 Task::none()
@@ -721,7 +707,17 @@ impl App {
                 let Some(info) = &self.wallet_info else {
                     return Task::none();
                 };
-                let validator_str = self.validator_address.trim().to_string();
+                let validator_str = if let Some(idx) = self.selected_validator {
+                    match self.validators.get(idx) {
+                        Some(v) => v.address.clone(),
+                        None => {
+                            self.error_message = Some("Invalid validator selection".into());
+                            return Task::none();
+                        }
+                    }
+                } else {
+                    self.validator_address.trim().to_string()
+                };
                 if validator_str.is_empty() {
                     self.error_message = Some("Validator is required".into());
                     return Task::none();
@@ -767,6 +763,7 @@ impl App {
                         self.success_message = Some(format!("Staked! Digest: {digest}"));
                         self.validator_address.clear();
                         self.stake_amount.clear();
+                        self.selected_validator = None;
                         return self.load_stakes();
                     }
                     Err(e) => self.error_message = Some(e),
@@ -833,9 +830,11 @@ impl App {
             }
 
             Message::SelectValidator(idx) => {
-                if let Some(v) = self.validators.get(idx) {
-                    self.validator_address = v.address.clone();
-                    self.resolved_validator = None;
+                if self.selected_validator == Some(idx) {
+                    self.selected_validator = None;
+                } else {
+                    self.selected_validator = Some(idx);
+                    self.stake_amount.clear();
                 }
                 Task::none()
             }
@@ -1287,7 +1286,6 @@ impl App {
         self.recipient.clear();
         self.amount.clear();
         self.resolved_recipient = None;
-        self.resolved_validator = None;
         self.selected_token = None;
         self.error_message = None;
         self.success_message = None;
@@ -1297,6 +1295,7 @@ impl App {
         self.account_input.clear();
         self.validator_address.clear();
         self.stake_amount.clear();
+        self.selected_validator = None;
         self.sign_message_input.clear();
         self.signed_result = None;
         self.verify_message_input.clear();

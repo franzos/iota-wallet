@@ -48,6 +48,8 @@ pub struct ValidatorSummary {
     pub apy: u32,
     pub staking_pool_iota_balance: u64,
     pub image_url: Option<String>,
+    /// Age of the validator in epochs (current_epoch - activation_epoch).
+    pub age_epochs: u64,
 }
 
 #[derive(Debug, Clone)]

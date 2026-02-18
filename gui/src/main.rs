@@ -8,9 +8,10 @@ mod views;
 
 use iced::theme::Palette;
 use iced::widget::{
-    button, column, container, pick_list, qr_code, row, scrollable, svg, text, text_input, Space,
+    button, column, container, mouse_area, opaque, pick_list, qr_code, row, scrollable, svg, text,
+    text_input, Stack, Space,
 };
-use iced::{Color, Element, Fill, Font, Length, Task, Theme};
+use iced::{Background, Color, Element, Fill, Font, Length, Task, Theme};
 
 use std::path::PathBuf;
 use zeroize::Zeroizing;
@@ -78,13 +79,13 @@ struct App {
 
     // Name resolution
     resolved_recipient: Option<Result<String, String>>,
-    resolved_validator: Option<Result<String, String>>,
 
     // Staking
     stakes: Vec<StakedIotaSummary>,
     validators: Vec<ValidatorSummary>,
     validator_address: String,
     stake_amount: String,
+    selected_validator: Option<usize>,
 
     // Sign / Verify / Notarize
     sign_message_input: String,
@@ -248,11 +249,11 @@ impl App {
             history_page: 0,
             history_total: 0,
             resolved_recipient: None,
-            resolved_validator: None,
             stakes: Vec::new(),
             validators: Vec::new(),
             validator_address: String::new(),
             stake_amount: String::new(),
+            selected_validator: None,
             sign_message_input: String::new(),
             sign_mode: SignMode::Sign,
             signed_result: None,
@@ -376,7 +377,65 @@ impl App {
         ]
         .width(Fill);
 
-        row![sidebar, right].into()
+        let main_layout: Element<Message> = row![sidebar, right].into();
+
+        // Layer tx detail overlay when expanded
+        if self.screen == Screen::History {
+            if let Some(overlay) = self.view_tx_detail_overlay() {
+                let idx = self.expanded_tx.unwrap();
+                let backdrop = mouse_area(
+                    container(opaque(overlay))
+                        .center_x(Fill)
+                        .center_y(Fill)
+                        .width(Fill)
+                        .height(Fill)
+                        .style(|_theme| container::Style {
+                            background: Some(Background::Color(Color::from_rgba(
+                                0.0, 0.0, 0.0, 0.55,
+                            ))),
+                            ..Default::default()
+                        }),
+                )
+                .on_press(Message::ToggleTxDetail(idx));
+
+                return Stack::new()
+                    .push(main_layout)
+                    .push(backdrop)
+                    .width(Fill)
+                    .height(Fill)
+                    .into();
+            }
+        }
+
+        // Layer validator modal overlay when selected
+        if self.screen == Screen::Staking {
+            if let Some(overlay) = self.view_validator_modal() {
+                let idx = self.selected_validator.unwrap();
+                let backdrop = mouse_area(
+                    container(opaque(overlay))
+                        .center_x(Fill)
+                        .center_y(Fill)
+                        .width(Fill)
+                        .height(Fill)
+                        .style(|_theme| container::Style {
+                            background: Some(Background::Color(Color::from_rgba(
+                                0.0, 0.0, 0.0, 0.55,
+                            ))),
+                            ..Default::default()
+                        }),
+                )
+                .on_press(Message::SelectValidator(idx));
+
+                return Stack::new()
+                    .push(main_layout)
+                    .push(backdrop)
+                    .width(Fill)
+                    .height(Fill)
+                    .into();
+            }
+        }
+
+        main_layout
     }
 
     fn view_sidebar(&self) -> Element<'_, Message> {

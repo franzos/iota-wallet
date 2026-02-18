@@ -81,9 +81,10 @@ pub(crate) enum Message {
     HistoryNextPage,
     HistoryPrevPage,
 
+    // Explorer
+    OpenExplorerAddress(String),
+
     // Staking
-    ValidatorResolved(Result<String, String>),
-    ValidatorAddressChanged(String),
     StakeAmountChanged(String),
     ConfirmStake,
     StakeCompleted(Result<String, String>),

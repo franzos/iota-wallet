@@ -1,9 +1,33 @@
 use crate::messages::Message;
 use crate::{styles, App, MUTED};
-use iced::widget::{button, column, container, row, scrollable, text, text_input, Space};
-use iced::{Element, Fill, Length};
+use iced::widget::{button, column, container, row, table, text, text_input, Space};
+use iced::{Element, Fill, Font, Length};
 use iota_wallet_core::display::format_balance;
 use iota_wallet_core::network::StakeStatus;
+
+/// Pre-formatted row data for the active stakes table.
+#[derive(Clone)]
+struct StakeRow {
+    validator_label: String,
+    principal: String,
+    reward: String,
+    epoch: String,
+    status_label: String,
+    status_color: iced::Color,
+    unstakeable: bool,
+    object_id: String,
+}
+
+/// Pre-formatted row data for the validators table.
+#[derive(Clone)]
+struct ValidatorRow {
+    index: usize,
+    name: String,
+    age: String,
+    apy: String,
+    commission: String,
+    pool_balance: String,
+}
 
 impl App {
     pub(crate) fn view_staking(&self) -> Element<'_, Message> {
@@ -29,99 +53,115 @@ impl App {
         } else if self.stakes.is_empty() {
             stakes_content = stakes_content.push(text("No active stakes.").size(14).color(MUTED));
         } else {
-            let header = row![
-                text("Validator")
-                    .size(11)
-                    .color(MUTED)
-                    .width(Length::Fixed(120.0)),
-                text("Principal")
-                    .size(11)
-                    .color(MUTED)
-                    .width(Length::Fixed(110.0)),
-                text("Reward")
-                    .size(11)
-                    .color(MUTED)
-                    .width(Length::Fixed(110.0)),
-                text("Epoch")
-                    .size(11)
-                    .color(MUTED)
-                    .width(Length::Fixed(60.0)),
-                text("Status")
-                    .size(11)
-                    .color(MUTED)
-                    .width(Length::Fixed(70.0)),
-                text("").size(11),
-            ]
-            .spacing(8);
-            stakes_content = stakes_content.push(header);
-            stakes_content = stakes_content.push(styles::separator());
-
             let mut total_principal: u64 = 0;
             let mut total_reward: u64 = 0;
 
-            let mut stakes_col = column![].spacing(4);
-            for stake in &self.stakes {
-                total_principal = total_principal.saturating_add(stake.principal);
+            let rows: Vec<StakeRow> = self
+                .stakes
+                .iter()
+                .map(|stake| {
+                    total_principal = total_principal.saturating_add(stake.principal);
 
-                let reward_str = match stake.estimated_reward {
-                    Some(r) => {
-                        total_reward = total_reward.saturating_add(r);
-                        format_balance(r)
-                    }
-                    None => "-".into(),
-                };
-
-                let status_color = match stake.status {
-                    StakeStatus::Active => styles::ACCENT,
-                    StakeStatus::Pending => styles::WARNING,
-                    StakeStatus::Unstaked => MUTED,
-                };
-
-                let validator_label = match &stake.validator_name {
-                    Some(name) => name.clone(),
-                    None => {
-                        let id = stake.pool_id.to_string();
-                        if id.len() > 10 {
-                            format!("{}..{}", &id[..6], &id[id.len() - 4..])
-                        } else {
-                            id
+                    let reward = match stake.estimated_reward {
+                        Some(r) => {
+                            total_reward = total_reward.saturating_add(r);
+                            format_balance(r)
                         }
+                        None => "-".into(),
+                    };
+
+                    let status_color = match stake.status {
+                        StakeStatus::Active => styles::ACCENT,
+                        StakeStatus::Pending => styles::WARNING,
+                        StakeStatus::Unstaked => MUTED,
+                    };
+
+                    let validator_label = match &stake.validator_name {
+                        Some(name) => name.clone(),
+                        None => {
+                            let id = stake.pool_id.to_string();
+                            if id.len() > 10 {
+                                format!("{}..{}", &id[..6], &id[id.len() - 4..])
+                            } else {
+                                id
+                            }
+                        }
+                    };
+
+                    StakeRow {
+                        validator_label,
+                        principal: format_balance(stake.principal),
+                        reward,
+                        epoch: format!("{}", stake.stake_activation_epoch),
+                        status_label: format!("{}", stake.status),
+                        status_color,
+                        unstakeable: stake.status != StakeStatus::Unstaked,
+                        object_id: stake.object_id.to_string(),
                     }
-                };
+                })
+                .collect();
 
-                let mut stake_row = row![
-                    text(validator_label)
-                        .size(12)
-                        .width(Length::Fixed(120.0)),
-                    text(format_balance(stake.principal))
-                        .size(12)
-                        .width(Length::Fixed(110.0)),
-                    text(reward_str).size(12).width(Length::Fixed(110.0)),
-                    text(format!("{}", stake.stake_activation_epoch))
-                        .size(12)
-                        .width(Length::Fixed(60.0)),
-                    text(format!("{}", stake.status))
-                        .size(12)
-                        .color(status_color)
-                        .width(Length::Fixed(70.0)),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center);
+            let loading = self.loading > 0;
+            let tbl = table::table(
+                [
+                    table::column(
+                        text("Validator").size(12).color(MUTED),
+                        |r: StakeRow| -> Element<'_, Message> {
+                            text(r.validator_label).size(13).into()
+                        },
+                    )
+                    .width(Length::FillPortion(5)),
+                    table::column(
+                        text("Principal").size(12).color(MUTED),
+                        |r: StakeRow| -> Element<'_, Message> {
+                            text(r.principal).size(13).into()
+                        },
+                    )
+                    .width(Length::FillPortion(4)),
+                    table::column(
+                        text("Reward").size(12).color(MUTED),
+                        |r: StakeRow| -> Element<'_, Message> { text(r.reward).size(13).into() },
+                    )
+                    .width(Length::FillPortion(4)),
+                    table::column(
+                        text("Epoch").size(12).color(MUTED),
+                        |r: StakeRow| -> Element<'_, Message> { text(r.epoch).size(13).into() },
+                    )
+                    .width(Length::FillPortion(2)),
+                    table::column(
+                        text("Status").size(12).color(MUTED),
+                        |r: StakeRow| -> Element<'_, Message> {
+                            text(r.status_label).size(13).color(r.status_color).into()
+                        },
+                    )
+                    .width(Length::FillPortion(3)),
+                    table::column(
+                        text("").size(12),
+                        move |r: StakeRow| -> Element<'_, Message> {
+                            if r.unstakeable {
+                                let mut btn = button(text("Unstake").size(12))
+                                    .padding([6, 12])
+                                    .style(styles::btn_danger);
+                                if !loading {
+                                    btn = btn.on_press(Message::ConfirmUnstake(r.object_id));
+                                }
+                                btn.into()
+                            } else {
+                                Space::new().into()
+                            }
+                        },
+                    )
+                    .width(Length::FillPortion(3)),
+                ],
+                rows,
+            )
+            .width(Fill)
+            .padding_x(12)
+            .padding_y(8)
+            .separator_x(0)
+            .separator_y(1);
 
-                if stake.status != StakeStatus::Unstaked {
-                    let mut unstake_btn = button(text("Unstake").size(11))
-                        .padding([4, 10])
-                        .style(styles::btn_danger);
-                    if self.loading == 0 {
-                        unstake_btn = unstake_btn
-                            .on_press(Message::ConfirmUnstake(stake.object_id.to_string()));
-                    }
-                    stake_row = stake_row.push(unstake_btn);
-                }
-
-                stakes_col = stakes_col.push(stake_row);
-            }
-            stakes_content = stakes_content.push(stakes_col);
+            stakes_content = stakes_content.push(tbl);
 
             stakes_content = stakes_content.push(styles::separator());
             stakes_content = stakes_content.push(
@@ -142,132 +182,95 @@ impl App {
                 .style(styles::card),
         );
 
-        // -- New stake form card --
-        let validator = text_input("Validator address or .iota name", &self.validator_address)
-            .on_input(Message::ValidatorAddressChanged);
+        // -- Validators card (replaces old "New Stake" form) --
+        let mut validators_content = column![text("Validators").size(16)].spacing(12);
 
-        // Show resolved address or error below the input
-        let resolved_hint: Option<Element<Message>> = match &self.resolved_validator {
-            Some(Ok(addr)) => Some(
-                text(format!("Resolved: {addr}"))
-                    .size(11)
-                    .color(styles::ACCENT)
-                    .into(),
-            ),
-            Some(Err(e)) => Some(text(e.as_str()).size(11).color(styles::DANGER).into()),
-            None => None,
-        };
+        if self.loading > 0 && self.validators.is_empty() {
+            validators_content =
+                validators_content.push(text("Loading validators...").size(14).color(MUTED));
+        } else if self.validators.is_empty() {
+            validators_content =
+                validators_content.push(text("No validators found.").size(14).color(MUTED));
+        } else {
+            let rows: Vec<ValidatorRow> = self
+                .validators
+                .iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    let name = if v.name.len() > 24 {
+                        format!("{}...", &v.name[..22])
+                    } else {
+                        v.name.clone()
+                    };
+                    let age = format!("{}", v.age_epochs);
+                    let apy = format!("{:.2}%", v.apy as f64 / 100.0);
+                    let commission = format!("{:.1}%", v.commission_rate as f64 / 100.0);
+                    let pool_iota = v.staking_pool_iota_balance / 1_000_000_000;
+                    let pool_balance = format!("{pool_iota} IOTA");
 
-        let amount = text_input("Amount (IOTA)", &self.stake_amount)
-            .on_input(Message::StakeAmountChanged)
-            .on_submit(Message::ConfirmStake);
+                    ValidatorRow {
+                        index: i,
+                        name,
+                        age,
+                        apy,
+                        commission,
+                        pool_balance,
+                    }
+                })
+                .collect();
 
-        let mut stake_btn = button(text("Stake").size(14))
-            .padding([10, 24])
-            .style(styles::btn_primary);
-        if self.loading == 0 && !self.validator_address.is_empty() && !self.stake_amount.is_empty()
-        {
-            stake_btn = stake_btn.on_press(Message::ConfirmStake);
+            let tbl = table::table(
+                [
+                    table::column(
+                        text("Name").size(12).color(MUTED),
+                        |r: ValidatorRow| -> Element<'_, Message> {
+                            button(text(r.name).size(13))
+                                .padding([4, 8])
+                                .style(styles::btn_ghost)
+                                .on_press(Message::SelectValidator(r.index))
+                                .into()
+                        },
+                    )
+                    .width(Length::FillPortion(5)),
+                    table::column(
+                        text("Age (Epochs)").size(12).color(MUTED),
+                        |r: ValidatorRow| -> Element<'_, Message> { text(r.age).size(13).into() },
+                    )
+                    .width(Length::FillPortion(2)),
+                    table::column(
+                        text("APY").size(12).color(MUTED),
+                        |r: ValidatorRow| -> Element<'_, Message> { text(r.apy).size(13).into() },
+                    )
+                    .width(Length::FillPortion(2)),
+                    table::column(
+                        text("Commission").size(12).color(MUTED),
+                        |r: ValidatorRow| -> Element<'_, Message> {
+                            text(r.commission).size(13).into()
+                        },
+                    )
+                    .width(Length::FillPortion(3)),
+                    table::column(
+                        text("Pool Balance").size(12).color(MUTED),
+                        |r: ValidatorRow| -> Element<'_, Message> {
+                            text(r.pool_balance).size(13).into()
+                        },
+                    )
+                    .width(Length::FillPortion(4)),
+                ],
+                rows,
+            )
+            .width(Fill)
+            .padding_x(12)
+            .padding_y(8)
+            .separator_x(0)
+            .separator_y(1);
+
+            validators_content = validators_content.push(tbl);
         }
-
-        let mut form_content = column![
-            text("New Stake").size(16),
-            Space::new().height(4),
-            text("Validator").size(12).color(MUTED),
-            validator,
-        ]
-        .spacing(4);
-        if let Some(hint) = resolved_hint {
-            form_content = form_content.push(hint);
-        }
-
-        // -- Validator picker --
-        if !self.validators.is_empty() {
-            form_content = form_content.push(Space::new().height(4));
-            form_content =
-                form_content.push(text("Or select a validator:").size(12).color(MUTED));
-
-            let mut picker_col = column![].spacing(2);
-
-            // Header row
-            let picker_header = row![
-                text("Name")
-                    .size(10)
-                    .color(MUTED)
-                    .width(Length::Fixed(140.0)),
-                text("APY")
-                    .size(10)
-                    .color(MUTED)
-                    .width(Length::Fixed(60.0)),
-                text("Commission")
-                    .size(10)
-                    .color(MUTED)
-                    .width(Length::Fixed(80.0)),
-                text("Pool Balance")
-                    .size(10)
-                    .color(MUTED)
-                    .width(Length::Fixed(110.0)),
-            ]
-            .spacing(8);
-            picker_col = picker_col.push(picker_header);
-
-            for (i, v) in self.validators.iter().enumerate() {
-                let apy_display = format!("{:.2}%", v.apy as f64 / 100.0);
-                let commission_display = format!("{:.1}%", v.commission_rate as f64 / 100.0);
-                let pool_iota = v.staking_pool_iota_balance / 1_000_000_000;
-                let pool_balance = format!("{pool_iota} IOTA");
-
-                let name_display = if v.name.len() > 18 {
-                    format!("{}...", &v.name[..16])
-                } else {
-                    v.name.clone()
-                };
-
-                let is_selected = self.validator_address == v.address;
-                let style = if is_selected {
-                    styles::btn_primary
-                } else {
-                    styles::btn_ghost
-                };
-
-                let row_content = row![
-                    text(name_display).size(11).width(Length::Fixed(140.0)),
-                    text(apy_display).size(11).width(Length::Fixed(60.0)),
-                    text(commission_display)
-                        .size(11)
-                        .width(Length::Fixed(80.0)),
-                    text(pool_balance).size(11).width(Length::Fixed(110.0)),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center);
-
-                let btn = button(row_content)
-                    .padding([4, 8])
-                    .width(Fill)
-                    .style(style)
-                    .on_press(Message::SelectValidator(i));
-
-                picker_col = picker_col.push(btn);
-            }
-
-            let picker_scroll = scrollable(picker_col).height(Length::Fixed(180.0));
-            form_content = form_content.push(picker_scroll);
-        } else if self.loading > 0 {
-            form_content = form_content.push(Space::new().height(4));
-            form_content =
-                form_content.push(text("Loading validators...").size(11).color(MUTED));
-        }
-
-        form_content = form_content
-            .push(Space::new().height(4))
-            .push(text("Amount").size(12).color(MUTED))
-            .push(amount)
-            .push(Space::new().height(8))
-            .push(stake_btn);
 
         col = col.push(
-            container(form_content)
-                .padding(24)
+            container(validators_content)
+                .padding(20)
                 .width(Fill)
                 .style(styles::card),
         );
@@ -284,5 +287,126 @@ impl App {
         }
 
         col.into()
+    }
+
+    /// Build the validator detail modal overlay.
+    pub(crate) fn view_validator_modal(&self) -> Option<Element<'_, Message>> {
+        let idx = self.selected_validator?;
+        let v = self.validators.get(idx)?;
+
+        let mut detail = column![].spacing(8);
+
+        // Validator name
+        detail = detail.push(text(v.name.as_str()).size(18).font(styles::BOLD));
+
+        // Address (truncated)
+        let addr_display = if v.address.len() > 30 {
+            format!(
+                "{}...{}",
+                &v.address[..14],
+                &v.address[v.address.len() - 14..]
+            )
+        } else {
+            v.address.clone()
+        };
+        detail = detail.push(text(addr_display).size(12).font(Font::MONOSPACE).color(MUTED));
+
+        detail = detail.push(Space::new().height(4));
+
+        // Info rows
+        let age_display = format!("{} epochs", v.age_epochs);
+        let apy_display = format!("{:.2}%", v.apy as f64 / 100.0);
+        let commission_display = format!("{:.1}%", v.commission_rate as f64 / 100.0);
+        let pool_iota = v.staking_pool_iota_balance / 1_000_000_000;
+        let pool_display = format!("{pool_iota} IOTA");
+
+        detail = detail.push(
+            row![
+                text("Age").size(12).color(MUTED).width(Length::Fixed(100.0)),
+                text(age_display).size(13),
+            ]
+            .spacing(8),
+        );
+        detail = detail.push(
+            row![
+                text("APY").size(12).color(MUTED).width(Length::Fixed(100.0)),
+                text(apy_display).size(13),
+            ]
+            .spacing(8),
+        );
+        detail = detail.push(
+            row![
+                text("Commission")
+                    .size(12)
+                    .color(MUTED)
+                    .width(Length::Fixed(100.0)),
+                text(commission_display).size(13),
+            ]
+            .spacing(8),
+        );
+        detail = detail.push(
+            row![
+                text("Pool Balance")
+                    .size(12)
+                    .color(MUTED)
+                    .width(Length::Fixed(100.0)),
+                text(pool_display).size(13),
+            ]
+            .spacing(8),
+        );
+
+        detail = detail.push(Space::new().height(4));
+
+        // Explorer link
+        detail = detail.push(
+            button(text("View in Explorer →").size(12))
+                .padding([6, 12])
+                .style(styles::btn_secondary)
+                .on_press(Message::OpenExplorerAddress(v.address.clone())),
+        );
+
+        detail = detail.push(styles::separator());
+
+        // Amount input
+        detail = detail.push(text("Amount").size(12).color(MUTED));
+        let amount = text_input("Amount (IOTA)", &self.stake_amount)
+            .on_input(Message::StakeAmountChanged)
+            .on_submit(Message::ConfirmStake);
+        detail = detail.push(amount);
+
+        detail = detail.push(Space::new().height(4));
+
+        // Action buttons
+        let mut stake_btn = button(text("Stake").size(14))
+            .padding([10, 24])
+            .style(styles::btn_primary);
+        if self.loading == 0 && !self.stake_amount.is_empty() {
+            stake_btn = stake_btn.on_press(Message::ConfirmStake);
+        }
+
+        let close_btn = button(text("Close").size(14))
+            .padding([10, 24])
+            .style(styles::btn_ghost)
+            .on_press(Message::SelectValidator(idx));
+
+        detail = detail.push(row![stake_btn, close_btn].spacing(8));
+
+        // Status messages inside the modal
+        if self.loading > 0 {
+            detail = detail.push(text("Processing...").size(13).color(MUTED));
+        }
+        if let Some(err) = &self.error_message {
+            detail = detail.push(text(err.as_str()).size(13).color(styles::DANGER));
+        }
+        if let Some(msg) = &self.success_message {
+            detail = detail.push(text(msg.as_str()).size(13).color(styles::ACCENT));
+        }
+
+        let card = container(detail)
+            .padding(24)
+            .max_width(480)
+            .style(styles::card);
+
+        Some(card.into())
     }
 }
