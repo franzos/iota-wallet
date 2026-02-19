@@ -28,7 +28,4 @@
     <!-- a -->
     <path d="M244 48 Q258 48 258 60 L258 84 L250 84 L250 80 Q246 84 240 84 Q230 84 230 74 Q230 64 244 64 L250 64 L250 60 Q250 56 244 56 L234 56 L234 48 Z M244 70 Q238 70 238 74 Q238 76 244 76 L250 76 L250 70 Z"/>
   </g>
-
-  <!-- tagline -->
-  <text x="128" y="96" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#94a3b8">an IOTA wallet · CLI · GUI</text>
 </svg>

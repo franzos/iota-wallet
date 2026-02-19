@@ -8,7 +8,7 @@ use jota_core::wallet::{HardwareKind, Network, WalletType};
 impl App {
     pub(crate) fn view_wallet_select(&self) -> Element<'_, Message> {
         let logo = svg(svg::Handle::from_memory(include_bytes!(
-            "../../assets/iota-logo.svg"
+            "../../assets/jota-logo.svg"
         )))
         .width(Length::Fixed(200.0));
 

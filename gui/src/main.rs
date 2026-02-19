@@ -553,7 +553,7 @@ impl App {
         .on_press(Message::GoTo(Screen::WalletSelect));
 
         let logo = svg(svg::Handle::from_memory(include_bytes!(
-            "../assets/iota-logo.svg",
+            "../assets/jota-logo.svg",
         )))
         .width(Length::Fixed(100.0));
 
