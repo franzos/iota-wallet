@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Context;
 
 pub mod cache;
@@ -104,4 +106,13 @@ fn read_wallet_meta(path: &std::path::Path) -> WalletType {
             _ => WalletType::Software,
         })
         .unwrap_or(WalletType::Software)
+}
+
+/// XDG-compliant data directory for wallet files and permissions.
+/// Linux: `~/.local/share/jota/`, macOS: `~/Library/Application Support/jota/`
+pub fn data_dir() -> anyhow::Result<PathBuf> {
+    let dir = dirs::data_dir()
+        .context("Cannot determine data directory")?
+        .join("jota");
+    Ok(dir)
 }

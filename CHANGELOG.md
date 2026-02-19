@@ -1,3 +1,10 @@
+## [0.2.0] - 2026-02-19
+
+### Changed
+- Storage moved to XDG-compliant directories (`~/.local/share/jota/`)
+- Socket moved to `$XDG_RUNTIME_DIR/jota/gui.sock`
+- Settings GUI
+
 ## [0.1.11] - 2026-02-19
 
 ### Added

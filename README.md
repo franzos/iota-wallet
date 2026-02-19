@@ -100,8 +100,10 @@ cargo build --release --features ledger
 
 ## GUI
 
-![Login](assets/login.png)
-![Account](assets/account.png)
+![Wallet Login](assets/login.png)
+![Wallet dApp Connection in Chrome](assets/dapp-connection.png)
+![Wallet dApp Connection in Chrome Succeeds](assets/dapp-connection-success.png)
+![Wallet Staking](assets/staking.png)
 
 Launch the GUI with:
 
@@ -175,16 +177,17 @@ The `--insecure` flag allows plain HTTP connections (for local development). The
 
 ## Storage
 
-Wallet files live in `~/.jota/`. Transactions are cached locally for pagination and balance history.
+All persistent data lives in the XDG data directory (`~/.local/share/jota/` on Linux, `~/Library/Application Support/jota/` on macOS). The socket uses `$XDG_RUNTIME_DIR`.
 
 ```
-~/.jota/
+~/.local/share/jota/
 ├── default.wallet    # encrypted (mode 0600)
-└── mywallet.wallet
-
-# Linux: ~/.local/share/jota/
-# macOS: ~/Library/Application Support/jota/
+├── mywallet.wallet
+├── permissions.json  # dApp origin permissions
 └── transactions.db   # SQLite cache (mode 0600)
+
+$XDG_RUNTIME_DIR/jota/
+└── gui.sock          # single-instance relay
 ```
 
 File format: argon2id-derived key + AES-256-GCM. Override the wallet directory with `--wallet-dir`.

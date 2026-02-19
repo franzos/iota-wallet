@@ -243,9 +243,8 @@ impl std::fmt::Display for TokenOption {
 impl App {
     fn new() -> (Self, Task<Message>) {
         let network_config = Self::parse_network_from_args();
-        let wallet_dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".jota");
+        let wallet_dir = jota_core::data_dir().unwrap_or_else(|_| PathBuf::from("."));
+        std::fs::create_dir_all(&wallet_dir).ok();
         let wallet_entries = list_wallets(&wallet_dir);
         let permissions = permissions::Permissions::load(&wallet_dir);
 

@@ -33,8 +33,8 @@ impl TransactionPage {
 /// Default DB location: platform data directory + `jota/transactions.db`
 /// (Linux: `~/.local/share`, macOS: `~/Library/Application Support`)
 fn default_db_path() -> Result<PathBuf> {
-    let data_dir = dirs::data_dir().context("Cannot determine data directory")?;
-    Ok(data_dir.join("jota").join("transactions.db"))
+    let dir = crate::data_dir()?;
+    Ok(dir.join("transactions.db"))
 }
 
 /// Create parent directories and open a SQLite connection, applying

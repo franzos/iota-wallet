@@ -23,7 +23,7 @@ pub(crate) struct Cli {
     #[arg(long, default_value = "default")]
     wallet: String,
 
-    /// Wallet directory (default: ~/.jota)
+    /// Wallet directory (default: ~/.local/share/jota)
     #[arg(long)]
     wallet_dir: Option<PathBuf>,
 
@@ -72,9 +72,8 @@ impl Cli {
     fn wallet_dir(&self) -> Result<PathBuf> {
         match &self.wallet_dir {
             Some(dir) => Ok(dir.clone()),
-            None => Ok(dirs::home_dir()
-                .context("Cannot determine home directory. Set $HOME or use --wallet-dir.")?
-                .join(".jota")),
+            None => jota_core::data_dir()
+                .context("Cannot determine data directory. Set $HOME or use --wallet-dir."),
         }
     }
 

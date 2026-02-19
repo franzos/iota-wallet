@@ -49,10 +49,8 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
             {
                 use jota_core::ledger_signer::connect_and_verify;
 
-                let path = jota_core::bip32_path_for(
-                    w.network_config().network,
-                    w.account_index() as u32,
-                );
+                let path =
+                    jota_core::bip32_path_for(w.network_config().network, w.account_index() as u32);
                 println!("Connecting to hardware wallet...");
                 connect_and_verify(path, w.address())?;
             }

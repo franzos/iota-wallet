@@ -4,7 +4,7 @@
 /// JSON object preceded by its byte-length as a little-endian u32.
 ///
 /// Single-instance relay: when Chrome spawns a second process and a GUI is already
-/// listening on `~/.jota/gui.sock`, the new process acts as a headless
+/// listening on `$XDG_RUNTIME_DIR/jota/gui.sock`, the new process acts as a headless
 /// stdin↔socket byte forwarder instead of opening a duplicate window.
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -270,11 +270,16 @@ pub(crate) fn install_native_host(extension_id: &str) -> io::Result<Vec<std::pat
 // -- Unix socket relay (single-instance) --
 
 /// Path to the Unix domain socket used for single-instance relay.
+/// Uses `$XDG_RUNTIME_DIR/jota/` with fallback to `/tmp/jota-<uid>/`.
 pub(crate) fn socket_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".jota")
-        .join("gui.sock")
+    let runtime = dirs::runtime_dir().unwrap_or_else(|| {
+        #[cfg(unix)]
+        let uid = unsafe { libc::getuid() };
+        #[cfg(not(unix))]
+        let uid = 0u32;
+        std::env::temp_dir().join(format!("jota-{uid}"))
+    });
+    runtime.join("jota").join("gui.sock")
 }
 
 /// Try to connect to an existing GUI's socket. Returns `Some(stream)` if a GUI

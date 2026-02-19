@@ -74,66 +74,64 @@ impl App {
         ]
         .spacing(4);
 
-        let header = row![title, Space::new().width(Fill)].align_y(iced::Alignment::Center);
-
-        let mut col = column![
-            header,
+        // -- General section --
+        let general_section = column![
+            text("GENERAL").size(12).color(MUTED),
             container(network_content)
                 .padding(24)
-                .max_width(500)
+                .width(Fill)
                 .style(styles::card),
             container(history_content)
                 .padding(24)
-                .max_width(500)
+                .width(Fill)
                 .style(styles::card),
         ]
-        .spacing(16);
+        .spacing(8);
 
-        // Browser Extension bridge card
-        {
-            let ext_input = text_input("Chrome Extension ID", &self.extension_id)
-                .on_input(Message::ExtensionIdChanged)
-                .size(13);
+        // -- Integrations section --
+        let ext_input = text_input("Chrome Extension ID", &self.extension_id)
+            .on_input(Message::ExtensionIdChanged)
+            .size(13);
 
-            let can_install = !self.extension_id.trim().is_empty();
-            let mut install_btn = button(text("Install Native Host").size(14))
-                .padding([10, 24])
-                .style(styles::btn_primary);
-            if can_install {
-                install_btn = install_btn.on_press(Message::InstallNativeHost);
-            }
-
-            let mut bridge_content =
-                column![
-                text("Browser Extension").size(16),
-                Space::new().height(4),
-                text("Connect dApps to this wallet via the browser extension.")
-                    .size(12)
-                    .color(MUTED),
-                text("Click the extension icon in your browser to copy its ID, then paste it here.")
-                    .size(12)
-                    .color(MUTED),
-                Space::new().height(4),
-                ext_input,
-                Space::new().height(8),
-                install_btn,
-            ]
-                .spacing(4);
-
-            if let Some(msg) = &self.success_message {
-                if msg.contains("Native host") {
-                    bridge_content =
-                        bridge_content.push(text(msg.as_str()).size(12).color(styles::ACCENT));
-                }
-            }
-
-            col = col.push(
-                container(bridge_content)
-                    .padding(24)
-                    .max_width(500)
-                    .style(styles::card),
-            );
+        let can_install = !self.extension_id.trim().is_empty();
+        let mut install_btn = button(text("Install Native Host").size(14))
+            .padding([10, 24])
+            .style(styles::btn_primary);
+        if can_install {
+            install_btn = install_btn.on_press(Message::InstallNativeHost);
         }
+
+        let mut bridge_content = column![
+            text("Browser Extension").size(16),
+            Space::new().height(4),
+            text("Connect dApps to this wallet via the browser extension.")
+                .size(12)
+                .color(MUTED),
+            text("Click the extension icon in your browser to copy its ID, then paste it here.")
+                .size(12)
+                .color(MUTED),
+            Space::new().height(4),
+            ext_input,
+            Space::new().height(8),
+            install_btn,
+        ]
+        .spacing(4);
+
+        if let Some(msg) = &self.success_message {
+            if msg.contains("Native host") {
+                bridge_content =
+                    bridge_content.push(text(msg.as_str()).size(12).color(styles::ACCENT));
+            }
+        }
+
+        let mut integrations_section = column![
+            text("INTEGRATIONS").size(12).color(MUTED),
+            container(bridge_content)
+                .padding(24)
+                .width(Fill)
+                .style(styles::card),
+        ]
+        .spacing(8);
 
         // Connected Sites card
         if let Some(info) = &self.wallet_info {
@@ -158,16 +156,20 @@ impl App {
                 }
             }
 
-            col = col.push(
+            integrations_section = integrations_section.push(
                 container(sites_content)
                     .padding(24)
-                    .max_width(500)
+                    .width(Fill)
                     .style(styles::card),
             );
         }
 
+        let header = row![title, Space::new().width(Fill)].align_y(iced::Alignment::Center);
+
+        let mut col = column![header, general_section, integrations_section,].spacing(16);
+
+        // -- Security section --
         if self.wallet_info.is_some() {
-            // Change password card
             let old_pw = text_input("Current password", &self.settings_old_password)
                 .on_input(|s| Message::SettingsOldPasswordChanged(Zeroizing::new(s)))
                 .secure(true);
@@ -190,7 +192,7 @@ impl App {
                 change_btn = change_btn.on_press(Message::ChangePassword);
             }
 
-            let pw_content = column![
+            let mut pw_content = column![
                 text("Change Password").size(16),
                 Space::new().height(4),
                 old_pw,
@@ -201,22 +203,26 @@ impl App {
             ]
             .spacing(4);
 
-            col = col.push(
-                container(pw_content)
-                    .padding(24)
-                    .max_width(500)
-                    .style(styles::card),
-            );
-
             if self.loading > 0 {
-                col = col.push(text("Changing password...").size(13).color(MUTED));
+                pw_content = pw_content.push(text("Changing password...").size(13).color(MUTED));
             }
             if let Some(msg) = &self.success_message {
-                col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
+                pw_content = pw_content.push(text(msg.as_str()).size(13).color(styles::ACCENT));
             }
             if let Some(err) = &self.error_message {
-                col = col.push(text(err.as_str()).size(13).color(styles::DANGER));
+                pw_content = pw_content.push(text(err.as_str()).size(13).color(styles::DANGER));
             }
+
+            let security_section = column![
+                text("SECURITY").size(12).color(MUTED),
+                container(pw_content)
+                    .padding(24)
+                    .width(Fill)
+                    .style(styles::card),
+            ]
+            .spacing(8);
+
+            col = col.push(security_section);
         }
 
         col.into()
