@@ -11,30 +11,14 @@
 
 ## Install
 
-**Pre-built binaries:**
+| Method | Command |
+|--------|---------|
+| Homebrew | `brew tap franzos/tap && brew install jota` |
+| Debian/Ubuntu | Download [`.deb`](https://github.com/franzos/jota/releases) — `sudo dpkg -i jota_*_amd64.deb` |
+| Fedora/RHEL | Download [`.rpm`](https://github.com/franzos/jota/releases) — `sudo rpm -i jota-*.x86_64.rpm` |
+| Guix | `guix install -L <panther> jota` ([Panther channel](https://github.com/franzos/panther)) |
 
-Download the latest release from [GitHub Releases](https://github.com/franzos/jota/releases):
-
-```bash
-# Linux (x86_64)
-curl -sL https://github.com/franzos/jota/releases/latest/download/jota-x86_64-unknown-linux-gnu.tar.gz | tar xz
-sudo mv jota /usr/local/bin/
-
-# macOS (Apple Silicon)
-curl -sL https://github.com/franzos/jota/releases/latest/download/jota-aarch64-apple-darwin.tar.gz | tar xz
-sudo mv jota /usr/local/bin/
-
-# macOS (Intel)
-curl -sL https://github.com/franzos/jota/releases/latest/download/jota-x86_64-apple-darwin.tar.gz | tar xz
-sudo mv jota /usr/local/bin/
-```
-
-**Homebrew:**
-
-```bash
-brew tap franzos/tap
-brew install jota
-```
+Pre-built binaries for Linux (x86_64), macOS (Apple Silicon, Intel), AppImage and DMG on [GitHub Releases](https://github.com/franzos/jota/releases).
 
 ## Quick start
 

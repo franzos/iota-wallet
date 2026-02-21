@@ -121,8 +121,58 @@ jobs:
             jota-gui-${{ matrix.target }}.dmg
             jota-gui-${{ matrix.target }}.dmg.sha256
 
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Build deb package
+        run: cargo deb -p jota --no-build
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jota-deb
+          path: target/debian/*.deb
+
+  rpm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Build rpm package
+        run: cargo generate-rpm -p cli
+
+      - name: Upload rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jota-rpm
+          path: target/generate-rpm/*.rpm
+
   release:
-    needs: [build]
+    needs: [build, deb, rpm]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -142,3 +192,5 @@ jobs:
             jota-gui-*.AppImage.sha256
             jota-gui-*.dmg
             jota-gui-*.dmg.sha256
+            *.deb
+            *.rpm

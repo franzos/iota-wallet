@@ -16,6 +16,20 @@ default = ["ledger"]
 hardware-wallets = ["jota-core/hardware-wallets"]
 ledger = ["hardware-wallets", "jota-core/ledger"]
 
+[package.metadata.deb]
+maintainer = "Franz Geffke <mail@gofranz.com>"
+section = "utils"
+assets = [
+    ["target/release/jota", "usr/bin/", "755"],
+    ["target/release/jota-gui", "usr/bin/", "755"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/jota", dest = "/usr/bin/jota", mode = "755" },
+    { source = "target/release/jota-gui", dest = "/usr/bin/jota-gui", mode = "755" },
+]
+
 [dependencies]
 jota-core = { path = "../core" }
 clap = { version = "4", features = ["derive", "env"] }
