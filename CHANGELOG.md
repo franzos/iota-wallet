@@ -1,3 +1,9 @@
+## [0.2.4] - 2026-03-01
+
+### Fixed
+- Hardened error handling across CLI, core, and GUI; added release profile optimizations
+- Eliminated string slicing panics in GUI when displaying truncated addresses and digests
+
 ## [0.2.3] - 2026-02-21
 
 ### Added
