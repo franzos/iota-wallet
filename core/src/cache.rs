@@ -227,7 +227,7 @@ impl TransactionCache {
         let now = i64::try_from(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .context("system clock is before UNIX epoch")?
                 .as_millis(),
         )
         .context("timestamp exceeds i64::MAX")?;
@@ -300,8 +300,8 @@ impl TransactionCache {
                     sender: row.get(2)?,
                     amount: amount.and_then(|a| a.parse::<u64>().ok()),
                     fee: fee.and_then(|f| f.parse::<u64>().ok()),
-                    epoch: u64::try_from(epoch).unwrap_or(0),
-                    lamport_version: u64::try_from(lamport).unwrap_or(0),
+                    epoch: epoch.try_into().unwrap_or(0),
+                    lamport_version: lamport.try_into().unwrap_or(0),
                 })
             })
             .context("Failed to query transactions")?;
@@ -339,7 +339,7 @@ impl TransactionCache {
             .query_map(params![network, address], |row| {
                 let epoch: i64 = row.get(0)?;
                 let delta: i64 = row.get(1)?;
-                Ok((u64::try_from(epoch).unwrap_or(0), delta))
+                Ok((epoch.try_into().unwrap_or(0), delta))
             })
             .context("Failed to query epoch deltas")?;
 
@@ -373,7 +373,7 @@ impl TransactionCache {
             |row| row.get::<_, i64>(0),
         );
         match result {
-            Ok(epoch) => Ok(u64::try_from(epoch).unwrap_or(0)),
+            Ok(epoch) => Ok(epoch.try_into().unwrap_or(0)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(0),
             Err(e) => Err(e).context("Failed to query sync state"),
         }

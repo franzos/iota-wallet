@@ -9,3 +9,8 @@ authors = ["Franz Geffke <mail@gofranz.com>"]
 license = "MIT"
 repository = "https://github.com/franzos/jota"
 description = "Monero-inspired wallet for IOTA Rebased"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

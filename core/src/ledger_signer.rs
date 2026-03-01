@@ -146,6 +146,7 @@ impl Signer for LedgerSigner {
         let pk: &[u8; 32] = self.public_key.as_ref();
 
         Ok(SignedMessage {
+            // Non-UTF-8 messages are stored as base64 for display purposes
             message: String::from_utf8(msg.to_vec()).unwrap_or_else(|_| Base64::encode_string(msg)),
             signature: Base64::encode_string(sig),
             public_key: Base64::encode_string(pk),

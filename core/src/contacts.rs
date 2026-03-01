@@ -56,7 +56,7 @@ impl ContactStore {
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
+            .context("system clock is before UNIX epoch")?
             .as_secs() as i64;
 
         self.contacts.push(Contact {

@@ -215,7 +215,9 @@ impl App {
 
                 Task::perform(
                     async move {
-                        std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
+                        if let Some(parent) = path.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
                         let wallet = Wallet::create_new(path, &pw, config)?;
                         let mnemonic = Zeroizing::new(
                             wallet
@@ -282,7 +284,9 @@ impl App {
 
                 Task::perform(
                     async move {
-                        std::fs::create_dir_all(path.parent().expect("wallet path has parent"))?;
+                        if let Some(parent) = path.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
                         let wallet = Wallet::recover_from_mnemonic(path, &pw, &mnemonic, config)?;
                         WalletInfo::from_wallet(&wallet)
                     },
@@ -347,9 +351,9 @@ impl App {
                             .map_err(|e| anyhow::anyhow!("Task failed: {e}"))??;
 
                             let address = *signer.address();
-                            std::fs::create_dir_all(
-                                path.parent().expect("wallet path has parent"),
-                            )?;
+                            if let Some(parent) = path.parent() {
+                                std::fs::create_dir_all(parent)?;
+                            }
                             let wallet = Wallet::create_hardware(
                                 path,
                                 &pw,

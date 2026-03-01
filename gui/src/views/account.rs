@@ -1,3 +1,4 @@
+use crate::helpers::truncate_str;
 use crate::messages::Message;
 use crate::state::Screen;
 use crate::{styles, App, MUTED};
@@ -46,11 +47,7 @@ impl App {
             col = col.push(text(msg.as_str()).size(13).color(styles::ACCENT));
         }
         if let Some(addr) = &self.save_contact_offer {
-            let addr_short = if addr.len() > 20 {
-                format!("{}...{}", &addr[..10], &addr[addr.len() - 8..])
-            } else {
-                addr.clone()
-            };
+            let addr_short = truncate_str(addr, 10, 8);
             let offer = row![
                 text(format!("Save {addr_short} to contacts?"))
                     .size(12)

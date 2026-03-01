@@ -2,6 +2,7 @@ use base64ct::Encoding;
 use iced::widget::{button, column, container, row, text, Space};
 use iced::{Element, Font, Length};
 
+use crate::helpers::truncate_start;
 use crate::messages::Message;
 use crate::styles;
 use crate::{App, MUTED};
@@ -84,11 +85,7 @@ impl App {
 
             // Show transaction/message preview (truncated)
             if let Some(tx_b64) = approval.params.get("transaction").and_then(|v| v.as_str()) {
-                let preview = if tx_b64.len() > 60 {
-                    format!("{}...", &tx_b64[..60])
-                } else {
-                    tx_b64.to_string()
-                };
+                let preview = truncate_start(tx_b64, 60);
                 detail = detail.push(
                     row![
                         text("Data")
@@ -104,13 +101,7 @@ impl App {
                 let preview = base64ct::Base64::decode_vec(msg_b64)
                     .ok()
                     .and_then(|b| String::from_utf8(b).ok())
-                    .unwrap_or_else(|| {
-                        if msg_b64.len() > 60 {
-                            format!("{}...", &msg_b64[..60])
-                        } else {
-                            msg_b64.to_string()
-                        }
-                    });
+                    .unwrap_or_else(|| truncate_start(msg_b64, 60));
                 let preview = if preview.chars().count() > 120 {
                     let truncated: String = preview.chars().take(120).collect();
                     format!("{truncated}...")

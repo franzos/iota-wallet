@@ -1,3 +1,4 @@
+use crate::helpers::{truncate_start, truncate_str};
 use crate::messages::Message;
 use crate::{styles, App, MUTED};
 use iced::widget::{button, column, container, row, table, text, text_input, Space};
@@ -80,11 +81,7 @@ impl App {
                         Some(name) => name.clone(),
                         None => {
                             let id = stake.pool_id.to_string();
-                            if id.len() > 10 {
-                                format!("{}..{}", &id[..6], &id[id.len() - 4..])
-                            } else {
-                                id
-                            }
+                            truncate_str(&id, 6, 4)
                         }
                     };
 
@@ -195,11 +192,7 @@ impl App {
                 .iter()
                 .enumerate()
                 .map(|(i, v)| {
-                    let name = if v.name.len() > 24 {
-                        format!("{}...", &v.name[..22])
-                    } else {
-                        v.name.clone()
-                    };
+                    let name = truncate_start(&v.name, 22);
                     let age = format!("{}", v.age_epochs);
                     let apy = format!("{:.2}%", v.apy as f64 / 100.0);
                     let commission = format!("{:.1}%", v.commission_rate as f64 / 100.0);
@@ -297,15 +290,7 @@ impl App {
         detail = detail.push(text(v.name.as_str()).size(18).font(styles::BOLD));
 
         // Address (truncated)
-        let addr_display = if v.address.len() > 30 {
-            format!(
-                "{}...{}",
-                &v.address[..14],
-                &v.address[v.address.len() - 14..]
-            )
-        } else {
-            v.address.clone()
-        };
+        let addr_display = truncate_str(&v.address, 14, 14);
         detail = detail.push(
             text(addr_display)
                 .size(12)

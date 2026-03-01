@@ -1,3 +1,4 @@
+use crate::helpers::truncate_str;
 use crate::messages::Message;
 use crate::{styles, App, MUTED};
 use iced::widget::{button, column, container, row, table, text, text_input, Space};
@@ -44,15 +45,7 @@ impl App {
                         c.name.clone()
                     };
 
-                    let address_short = if c.address.len() > 20 {
-                        format!(
-                            "{}...{}",
-                            &c.address[..10],
-                            &c.address[c.address.len() - 8..]
-                        )
-                    } else {
-                        c.address.clone()
-                    };
+                    let address_short = truncate_str(&c.address, 10, 8);
 
                     ContactRow {
                         index: i,

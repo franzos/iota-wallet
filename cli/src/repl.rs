@@ -230,10 +230,16 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                                                 eprintln!("Error saving wallet: {e}");
                                                 continue;
                                             }
-                                            let network = NetworkClient::new(
+                                            let network = match NetworkClient::new(
                                                 &effective_config,
                                                 cli.insecure,
-                                            )?;
+                                            ) {
+                                                Ok(n) => n,
+                                                Err(e) => {
+                                                    eprintln!("Error reconnecting to network: {e}");
+                                                    continue;
+                                                }
+                                            };
                                             service =
                                                 WalletService::new(network, Arc::new(new_signer))
                                                     .with_notarization_package(notarization_pkg);
@@ -259,8 +265,21 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                                     eprintln!("Error saving wallet: {e}");
                                     continue;
                                 }
-                                let network = NetworkClient::new(&effective_config, cli.insecure)?;
-                                service = WalletService::new(network, Arc::new(wallet.signer()?))
+                                let network = match NetworkClient::new(&effective_config, cli.insecure) {
+                                    Ok(n) => n,
+                                    Err(e) => {
+                                        eprintln!("Error reconnecting to network: {e}");
+                                        continue;
+                                    }
+                                };
+                                let signer = match wallet.signer() {
+                                    Ok(s) => Arc::new(s),
+                                    Err(e) => {
+                                        eprintln!("Error creating signer: {e}");
+                                        continue;
+                                    }
+                                };
+                                service = WalletService::new(network, signer)
                                     .with_notarization_package(notarization_pkg);
                                 let prompt_str = format!("[wallet {}]", wallet.short_address());
                                 prompt = DefaultPrompt::new(
@@ -284,9 +303,13 @@ pub async fn run_repl(cli: &Cli) -> Result<()> {
                             println!("Cancelled.");
                             continue;
                         }
-                        let old_pw = Zeroizing::new(
-                            rpassword::prompt_password("Current password: ").unwrap_or_default(),
-                        );
+                        let old_pw = match rpassword::prompt_password("Current password: ") {
+                            Ok(pw) => Zeroizing::new(pw),
+                            Err(e) => {
+                                eprintln!("Error reading password: {e}");
+                                continue;
+                            }
+                        };
                         let new_pw = match prompt_new_password() {
                             Ok(pw) => pw,
                             Err(e) => {
@@ -422,9 +445,14 @@ fn prompt_new_password() -> Result<Zeroizing<String>> {
 fn prompt_confirm(prompt: &str) -> bool {
     use std::io::Write;
     print!("{prompt} [y/N]: ");
-    std::io::stdout().flush().ok();
+    if std::io::stdout().flush().is_err() {
+        return false;
+    }
     let mut input = String::new();
-    std::io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y")
+    match std::io::stdin().read_line(&mut input) {
+        Ok(_) => input.trim().eq_ignore_ascii_case("y"),
+        Err(_) => false,
+    }
 }
 
 fn prompt_mnemonic() -> Result<Zeroizing<String>> {

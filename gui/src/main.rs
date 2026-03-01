@@ -641,15 +641,7 @@ impl App {
         };
         let balance_display = text(bal).size(30).font(styles::BOLD);
 
-        let addr_short = if info.address_string.len() > 20 {
-            format!(
-                "{}...{}",
-                &info.address_string[..10],
-                &info.address_string[info.address_string.len() - 8..]
-            )
-        } else {
-            info.address_string.clone()
-        };
+        let addr_short = helpers::truncate_str(&info.address_string, 10, 8);
         let addr_row = row![
             text(addr_short).size(12).font(Font::MONOSPACE).color(MUTED),
             button(text("Copy").size(11))

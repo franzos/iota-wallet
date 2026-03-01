@@ -1,3 +1,4 @@
+use crate::helpers::truncate_str;
 use crate::messages::Message;
 use crate::{styles, App, MUTED};
 use iced::widget::{button, column, container, row, text, text_input, Space};
@@ -31,11 +32,7 @@ impl App {
         } else {
             for nft in &self.nfts {
                 let id_str = nft.object_id.to_string();
-                let id_short = if id_str.len() > 20 {
-                    format!("{}...{}", &id_str[..10], &id_str[id_str.len() - 8..])
-                } else {
-                    id_str.clone()
-                };
+                let id_short = truncate_str(&id_str, 10, 8);
 
                 let name = nft.name.as_deref().unwrap_or("(unnamed)");
                 let type_short = nft

@@ -1,3 +1,4 @@
+use crate::helpers::truncate_str;
 use crate::messages::Message;
 use crate::{styles, App, TokenOption, MUTED};
 use iced::widget::{button, column, container, pick_list, row, text, text_input, Space};
@@ -102,15 +103,7 @@ impl App {
             if !matches.is_empty() {
                 let mut suggestions = column![].spacing(2);
                 for c in matches {
-                    let addr_short = if c.address.len() > 16 {
-                        format!(
-                            "{}...{}",
-                            &c.address[..8],
-                            &c.address[c.address.len() - 6..]
-                        )
-                    } else {
-                        c.address.clone()
-                    };
+                    let addr_short = truncate_str(&c.address, 8, 6);
                     let label = row![
                         text(&c.name).size(12),
                         text(addr_short).size(11).font(Font::MONOSPACE).color(MUTED),

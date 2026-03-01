@@ -1,3 +1,4 @@
+use crate::helpers::truncate_start;
 use crate::messages::Message;
 use crate::state::SignMode;
 use crate::{styles, App, MUTED};
@@ -92,16 +93,8 @@ impl App {
                 .style(styles::btn_secondary)
                 .on_press(Message::CopyPublicKey);
 
-            let sig_short = if signed.signature.len() > 24 {
-                format!("{}...", &signed.signature[..24])
-            } else {
-                signed.signature.clone()
-            };
-            let pk_short = if signed.public_key.len() > 24 {
-                format!("{}...", &signed.public_key[..24])
-            } else {
-                signed.public_key.clone()
-            };
+            let sig_short = truncate_start(&signed.signature, 24);
+            let pk_short = truncate_start(&signed.public_key, 24);
 
             let result_card = container(
                 column![

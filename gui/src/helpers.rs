@@ -6,6 +6,24 @@ use iced::{Element, Fill, Font, Length};
 use jota_core::display::{format_balance, nanos_to_iota};
 use jota_core::network::{TransactionDirection, TransactionSummary};
 
+/// Safely truncate a string to `head...tail` form, avoiding panics on short strings.
+pub(crate) fn truncate_str(s: &str, head: usize, tail: usize) -> String {
+    if s.len() > head + tail + 3 {
+        format!("{}...{}", &s[..head], &s[s.len() - tail..])
+    } else {
+        s.to_string()
+    }
+}
+
+/// Safely truncate a string to `head...` form.
+pub(crate) fn truncate_start(s: &str, head: usize) -> String {
+    if s.len() > head + 3 {
+        format!("{}...", &s[..head])
+    } else {
+        s.to_string()
+    }
+}
+
 /// Pre-formatted row data passed to the table column view closures.
 #[derive(Clone)]
 struct TxRow {
@@ -43,13 +61,7 @@ impl App {
                 let sender_short = tx
                     .sender
                     .as_ref()
-                    .map(|s| {
-                        if s.len() > 16 {
-                            format!("{}...{}", &s[..8], &s[s.len() - 6..])
-                        } else {
-                            s.clone()
-                        }
-                    })
+                    .map(|s| truncate_str(s, 8, 6))
                     .unwrap_or_else(|| "-".into());
 
                 let (received, sent) = match tx.direction {
@@ -64,15 +76,7 @@ impl App {
                     None => ("-".into(), "-".into()),
                 };
 
-                let digest_short = if tx.digest.len() > 16 {
-                    format!(
-                        "{}...{}",
-                        &tx.digest[..8],
-                        &tx.digest[tx.digest.len() - 6..]
-                    )
-                } else {
-                    tx.digest.clone()
-                };
+                let digest_short = truncate_str(&tx.digest, 8, 6);
 
                 TxRow {
                     index: i,
@@ -155,11 +159,7 @@ impl App {
         detail = detail.push(text(dir_label).size(16).font(styles::BOLD).color(dir_color));
 
         if let Some(ref sender) = tx.sender {
-            let sender_display = if sender.len() > 30 {
-                format!("{}...{}", &sender[..14], &sender[sender.len() - 14..])
-            } else {
-                sender.clone()
-            };
+            let sender_display = truncate_str(sender, 14, 14);
             detail = detail.push(
                 row![
                     text("Sender:")
@@ -198,15 +198,7 @@ impl App {
             );
         }
 
-        let digest_display = if tx.digest.len() > 30 {
-            format!(
-                "{}...{}",
-                &tx.digest[..14],
-                &tx.digest[tx.digest.len() - 14..]
-            )
-        } else {
-            tx.digest.clone()
-        };
+        let digest_display = truncate_str(&tx.digest, 14, 14);
         detail = detail.push(
             row![
                 text("Digest:")
